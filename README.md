@@ -4,7 +4,9 @@ Data pipeline for fetching and preprocessing **all** parliamentary data from the
 
 ## What's in the data?
 
-35+ entity types covering the full Dutch parliamentary process:
+35+ entity types covering the full Dutch parliamentary process.
+
+**→ [Full dataset documentation](docs/DATASET.md)** — entity descriptions, key columns, relationships, and exploration ideas.
 
 | Category | Entities |
 |---|---|
