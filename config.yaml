@@ -1,0 +1,193 @@
+# =============================================================================
+# Tweede Kamer Open Data Pipeline Configuration
+# =============================================================================
+# Docs: https://opendata.tweedekamer.nl/documentatie/odata-api
+# API:  https://gegevensmagazijn.tweedekamer.nl/OData/v4/2.0
+
+api:
+  base_url: "https://gegevensmagazijn.tweedekamer.nl/OData/v4/2.0"
+  page_size: 250          # Max results per page (API hard limit)
+  request_delay: 0.25     # Seconds between requests (be nice to the API)
+  max_retries: 5          # Retry count on transient failures
+  retry_backoff: 2.0      # Exponential backoff multiplier
+  timeout: 60             # Request timeout in seconds
+
+paths:
+  raw_data: "data/raw"
+  processed_data: "data/processed"
+
+# All 35+ entity types from the Tweede Kamer information model.
+# Set 'enabled: false' to skip an entity, or adjust filters/selects per entity.
+# Default filter excludes deleted placeholder records (Verwijderd eq false).
+entities:
+  # === Core parliamentary entities ===
+  Persoon:
+    enabled: true
+    description: "Members of parliament and related persons"
+
+  PersoonContactinformatie:
+    enabled: true
+    description: "Contact information for persons"
+
+  PersoonGeschenk:
+    enabled: true
+    description: "Gifts received by parliament members"
+
+  PersoonLoopbaan:
+    enabled: true
+    description: "Career history of persons"
+
+  PersoonNevenfunctie:
+    enabled: true
+    description: "Side functions / secondary jobs"
+
+  PersoonNevenfunctieInkomsten:
+    enabled: true
+    description: "Income from side functions"
+
+  PersoonOnderwijs:
+    enabled: true
+    description: "Education history of persons"
+
+  PersoonReis:
+    enabled: true
+    description: "Travel records of parliament members"
+
+  # === Fractions (political parties in parliament) ===
+  Fractie:
+    enabled: true
+    description: "Parliamentary fractions (parties)"
+
+  FractieAanvullendGegeven:
+    enabled: true
+    description: "Additional data for fractions"
+
+  FractieZetel:
+    enabled: true
+    description: "Fraction seats"
+
+  FractieZetelPersoon:
+    enabled: true
+    description: "Persons occupying fraction seats"
+
+  FractieZetelVacature:
+    enabled: true
+    description: "Vacancies in fraction seats"
+
+  # === Committees ===
+  Commissie:
+    enabled: true
+    description: "Parliamentary committees"
+
+  CommissieContactinformatie:
+    enabled: true
+    description: "Committee contact info"
+
+  CommissieZetel:
+    enabled: true
+    description: "Committee seats"
+
+  CommissieZetelVastPersoon:
+    enabled: true
+    description: "Permanent persons in committee seats"
+
+  CommissieZetelVastVacature:
+    enabled: true
+    description: "Vacancies in permanent committee seats"
+
+  CommissieZetelVervangerPersoon:
+    enabled: true
+    description: "Substitute persons in committee seats"
+
+  CommissieZetelVervangerVacature:
+    enabled: true
+    description: "Vacancies for substitute committee seats"
+
+  # === Activities & Agenda ===
+  Activiteit:
+    enabled: true
+    description: "Parliamentary activities"
+
+  ActiviteitActor:
+    enabled: true
+    description: "Actors involved in activities"
+
+  Agendapunt:
+    enabled: true
+    description: "Agenda items"
+
+  Reservering:
+    enabled: true
+    description: "Room reservations for activities"
+
+  # === Documents ===
+  Document:
+    enabled: true
+    description: "Parliamentary documents (bills, motions, etc.)"
+
+  DocumentActor:
+    enabled: true
+    description: "Actors associated with documents"
+
+  DocumentVersie:
+    enabled: true
+    description: "Document versions"
+
+  DocumentPublicatie:
+    enabled: true
+    description: "Document publications"
+
+  DocumentPublicatieMetadata:
+    enabled: true
+    description: "Metadata for document publications"
+
+  Kamerstukdossier:
+    enabled: true
+    description: "Parliamentary dossiers"
+
+  # === Decisions & Voting ===
+  Besluit:
+    enabled: true
+    description: "Decisions made in parliament"
+
+  Stemming:
+    enabled: true
+    description: "Individual votes on decisions"
+
+  # === Cases (Zaken) ===
+  Zaak:
+    enabled: true
+    description: "Parliamentary cases (motions, bills, etc.)"
+
+  ZaakActor:
+    enabled: true
+    description: "Actors involved in cases"
+
+  # === Meetings & Reports ===
+  Vergadering:
+    enabled: true
+    description: "Parliamentary meetings/sessions"
+
+  Verslag:
+    enabled: true
+    description: "Meeting reports/minutes"
+
+  Toezegging:
+    enabled: true
+    description: "Promises/commitments by ministers"
+
+  # === Rooms ===
+  Zaal:
+    enabled: true
+    description: "Rooms/halls in parliament"
+
+# Preprocessing options
+preprocessing:
+  # Convert datetime strings to proper datetime objects
+  parse_dates: true
+  # Drop columns that are always null across the entire dataset
+  drop_all_null_columns: true
+  # Normalize string whitespace (strip leading/trailing, collapse internal)
+  normalize_strings: true
+  # Output format: "parquet" or "csv"
+  output_format: "parquet"
