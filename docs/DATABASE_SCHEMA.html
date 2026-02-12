@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tweede Kamer Database Schema</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --accent: #3b82f6;
+      --accent2: #10b981;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      margin: 0;
+      padding: 2rem;
+      line-height: 1.6;
+    }
+    h1 {
+      font-size: 1.75rem;
+      margin-bottom: 0.5rem;
+      color: var(--text);
+    }
+    .subtitle {
+      color: var(--muted);
+      font-size: 0.95rem;
+      margin-bottom: 2rem;
+    }
+    .glossary {
+      background: var(--card);
+      border-radius: 8px;
+      padding: 1rem 1.5rem;
+      margin-bottom: 2rem;
+      font-size: 0.9rem;
+    }
+    .glossary h3 { margin-top: 0; font-size: 1rem; }
+    .glossary dl { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0.5rem 1.5rem; }
+    .glossary dt { color: var(--accent); font-weight: 600; }
+    .glossary dd { margin: 0; color: var(--muted); }
+    .diagram {
+      background: var(--card);
+      border-radius: 8px;
+      padding: 1.5rem;
+      margin-bottom: 2rem;
+      overflow-x: auto;
+    }
+    .diagram h3 { margin-top: 0; margin-bottom: 1rem; }
+    .mermaid { text-align: center; }
+    .entities {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 1rem;
+    }
+    .entity-card {
+      background: var(--card);
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      border-left: 4px solid var(--accent);
+    }
+    .entity-card h4 {
+      margin: 0 0 0.5rem 0;
+      font-size: 1rem;
+      color: var(--accent);
+    }
+    .entity-card .desc { color: var(--muted); font-size: 0.85rem; margin-bottom: 0.5rem; }
+    .entity-card .stats { font-size: 0.8rem; color: var(--muted); }
+    .entity-card .cols { font-size: 0.75rem; color: var(--muted); max-height: 4em; overflow: hidden; }
+    .links { font-size: 0.8rem; color: var(--accent2); }
+    .links a { color: var(--accent2); }
+    .tabs { display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap; }
+    .tabs button {
+      background: var(--card);
+      border: 1px solid #334155;
+      color: var(--text);
+      padding: 0.5rem 1rem;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.9rem;
+    }
+    .tabs button:hover { background: #334155; }
+    .tabs button.active { background: var(--accent); border-color: var(--accent); }
+    .section { display: none; }
+    .section.active { display: block; }
+  </style>
+</head>
+<body>
+  <h1>Tweede Kamer Database Schema</h1>
+  <p class="subtitle">Visual guide to the parliamentary data — 38 entities, linked by foreign keys. Open in Excel or SQLite.</p>
+
+  <div class="glossary">
+    <h3>Key Dutch terms</h3>
+    <dl>
+      <dt>Fractie</dt><dd>Parliamentary party</dd>
+      <dt>Zaak</dt><dd>Case (motion, bill, etc.)</dd>
+      <dt>Besluit</dt><dd>Decision on agenda item</dd>
+      <dt>Stemming</dt><dd>Individual vote (Voor/Tegen/Niet)</dd>
+      <dt>Vergadering</dt><dd>Meeting</dd>
+      <dt>Kamerstuk</dt><dd>Parliamentary document</dd>
+      <dt>Commissie</dt><dd>Committee</dd>
+      <dt>Vergaderjaar</dt><dd>Parliamentary year</dd>
+    </dl>
+  </div>
+
+  <div class="tabs">
+    <button class="active" data-tab="overview">Entity diagram</button>
+    <button data-tab="entities">Entity list</button>
+    <button data-tab="links">Links (foreign keys)</button>
+  </div>
+
+  <div id="overview" class="section active">
+    <div class="diagram">
+      <h3>Entity relationships</h3>
+      <div class="mermaid">
+erDiagram
+    Persoon ||--o{ PersoonContactinformatie : Persoon_Id
+    Persoon ||--o{ PersoonGeschenk : Persoon_Id
+    Persoon ||--o{ PersoonLoopbaan : Persoon_Id
+    Persoon ||--o{ PersoonReis : Persoon_Id
+    Persoon ||--o{ PersoonNevenfunctie : PersoonId
+    
+    Fractie ||--o{ FractieZetel : Fractie_Id
+    FractieZetel ||--o{ FractieZetelPersoon : FractieZetel_Id
+    FractieZetelPersoon }o--|| Persoon : Persoon_Id
+    
+    Activiteit ||--o{ ActiviteitActor : Activiteit_Id
+    Activiteit ||--o{ Agendapunt : Activiteit_Id
+    Activiteit }o--o| Vergadering : Vergadering_Id
+    
+    Agendapunt ||--o{ Besluit : Agendapunt_Id
+    Besluit ||--o{ Stemming : Besluit_Id
+    Stemming }o--o| Persoon : Persoon_Id
+    
+    Document ||--o{ DocumentActor : Document_Id
+    Document }o--o| Kamerstukdossier : Kamerstukdossier_Id
+    
+    Zaak ||--o{ ZaakActor : Zaak_Id
+    Vergadering ||--o{ Verslag : Vergadering_Id
+    
+    Persoon {
+      uuid Id PK
+      string Achternaam
+      string Fractielabel
+      string Functie
+    }
+    
+    Fractie {
+      uuid Id PK
+      string Afkorting
+      int AantalZetels
+    }
+    
+    Besluit {
+      uuid Id PK
+      uuid Agendapunt_Id FK
+      string BesluitSoort
+    }
+    
+    Stemming {
+      uuid Id PK
+      uuid Besluit_Id FK
+      string Soort Voor_Tegen_Niet
+    }
+    
+    Activiteit {
+      uuid Id PK
+      string Soort
+      string Onderwerp
+    }
+    
+    Agendapunt {
+      uuid Id PK
+      string Onderwerp
+    }
+    
+    Zaak {
+      uuid Id PK
+      string Soort
+      string Titel
+    }
+    
+    Document {
+      uuid Id PK
+      string Soort
+      string DocumentNummer
+    }
+      </div>
+    </div>
+  </div>
+
+  <div id="entities" class="section">
+    <div class="entities" id="entities-list"></div>
+  </div>
+
+  <div id="links" class="section">
+    <div class="glossary">
+      <h3>Foreign key links</h3>
+      <ul style="font-size: 0.9rem; line-height: 2; margin: 0; padding-left: 1.5rem;">
+        <li><b>Persoon_Id</b> → Persoon (in PersoonContactinformatie, PersoonGeschenk, PersoonLoopbaan, PersoonReis, PersoonOnderwijs, FractieZetelPersoon, Stemming, CommissieZetelVastPersoon, …)</li>
+        <li><b>PersoonId</b> → Persoon (in PersoonNevenfunctie)</li>
+        <li><b>PersoonNevenfunctie_Id</b> → PersoonNevenfunctie</li>
+        <li><b>Fractie_Id</b> → Fractie (in FractieZetel, FractieZetelPersoon, Stemming, …)</li>
+        <li><b>FractieZetel_Id</b> → FractieZetel</li>
+        <li><b>Commissie_Id</b> → Commissie</li>
+        <li><b>CommissieZetel_Id</b> → CommissieZetel</li>
+        <li><b>Activiteit_Id</b> → Activiteit (in ActiviteitActor, Agendapunt, Reservering)</li>
+        <li><b>Vergadering_Id</b> → Vergadering</li>
+        <li><b>Agendapunt_Id</b> → Agendapunt (in Besluit)</li>
+        <li><b>Besluit_Id</b> → Besluit (in Stemming)</li>
+        <li><b>Document_Id</b> → Document</li>
+        <li><b>Zaak_Id</b> → Zaak</li>
+        <li><b>Kamerstukdossier_Id</b> → Kamerstukdossier</li>
+        <li><b>Zaal_Id</b> → Zaal</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="glossary" style="margin-top: 2rem;">
+    <h3>Work with the data</h3>
+    <dl>
+      <dt>Parquet → Excel</dt>
+      <dd><code>python scripts/export_to_excel.py</code> — exports to CSV (Excel can open CSV)</dd>
+      <dt>Parquet → SQLite</dt>
+      <dd><code>python scripts/build_sqlite.py</code> — creates tweedekamer.db for querying</dd>
+      <dt>Sample data</dt>
+      <dd>See <code>docs/DATA_SAMPLES.md</code> and <code>docs/DATASET.md</code></dd>
+    </dl>
+  </div>
+
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'dark',
+      themeVariables: {
+        primaryColor: '#3b82f6',
+        primaryTextColor: '#e2e8f0',
+        primaryBorderColor: '#6366f1',
+        lineColor: '#64748b',
+        secondaryColor: '#1e293b',
+        tertiaryColor: '#0f172a'
+      }
+    });
+
+    const entities = [
+      { name: "Persoon", desc: "MPs and parliamentary actors", cols: "Id, Nummer, Achternaam, Voornamen, Fractielabel, Functie, Geslacht…", links: "PersoonContactinformatie, PersoonGeschenk, FractieZetelPersoon, Stemming" },
+      { name: "PersoonContactinformatie", desc: "Contact details (email, phone, etc.)", cols: "Id, Soort, Waarde, Persoon_Id", links: "→ Persoon" },
+      { name: "PersoonGeschenk", desc: "Gifts received (transparency)", cols: "Id, Omschrijving, Datum, Persoon_Id", links: "→ Persoon" },
+      { name: "PersoonLoopbaan", desc: "Career history", cols: "Id, Functie, Werkgever, Van, TotEnMet, Persoon_Id", links: "→ Persoon" },
+      { name: "PersoonNevenfunctie", desc: "Side jobs / bijbanen", cols: "Id, Omschrijving, PeriodeVan, VergoedingSoort, PersoonId", links: "→ Persoon" },
+      { name: "PersoonReis", desc: "Official travel", cols: "Id, Doel, Bestemming, Van, TotEnMet, Persoon_Id", links: "→ Persoon" },
+      { name: "Fractie", desc: "Parliamentary parties", cols: "Id, Afkorting, NaamNL, AantalZetels, DatumActief", links: "FractieZetel, FractieZetelPersoon, Stemming" },
+      { name: "FractieZetel", desc: "Seats allocated to party", cols: "Id, Gewicht, Fractie_Id", links: "→ Fractie, FractieZetelPersoon" },
+      { name: "FractieZetelPersoon", desc: "Person in party seat", cols: "Id, FractieZetel_Id, Persoon_Id, Functie, Van, TotEnMet", links: "→ FractieZetel, Persoon" },
+      { name: "Commissie", desc: "Parliamentary committees", cols: "Id, Afkorting, NaamNL, Soort", links: "CommissieZetel, ActiviteitActor" },
+      { name: "Activiteit", desc: "Parliamentary activities (meetings, debates)", cols: "Id, Soort, Nummer, Onderwerp, Datum, Vergadering_Id", links: "ActiviteitActor, Agendapunt, Document" },
+      { name: "ActiviteitActor", desc: "Participants in activities", cols: "Id, Activiteit_Id, ActorNaam, ActorFractie, Relatie", links: "→ Activiteit" },
+      { name: "Agendapunt", desc: "Agenda items", cols: "Id, Nummer, Onderwerp, Volgorde, Rubriek", links: "→ Activiteit, Besluit" },
+      { name: "Besluit", desc: "Decisions on agenda items", cols: "Id, Agendapunt_Id, StemmingsSoort, BesluitSoort, BesluitTekst", links: "→ Agendapunt, Stemming" },
+      { name: "Stemming", desc: "Individual votes (Voor/Tegen/Niet)", cols: "Id, Besluit_Id, Soort, ActorNaam, ActorFractie", links: "→ Besluit" },
+      { name: "Document", desc: "Parliamentary documents (bills, motions)", cols: "Id, Soort, DocumentNummer, Onderwerp, Datum", links: "DocumentActor, DocumentVersie, Kamerstukdossier" },
+      { name: "DocumentActor", desc: "Authors/initiators of documents", cols: "Id, Document_Id, ActorNaam, ActorFractie, Functie", links: "→ Document" },
+      { name: "Kamerstukdossier", desc: "Dossiers grouping documents", cols: "Id, Titel, Nummer, HoogsteVolgnummer, Afgesloten, Kamer", links: "→ Document, Zaak" },
+      { name: "Zaak", desc: "Parliamentary cases (motions, bills)", cols: "Id, Nummer, Soort, Titel, Onderwerp, Status", links: "ZaakActor, Document, Besluit" },
+      { name: "ZaakActor", desc: "Actors in cases", cols: "Id, Zaak_Id, ActorNaam, ActorFractie, Functie", links: "→ Zaak" },
+      { name: "Vergadering", desc: "Meetings with reports", cols: "Id, Soort, Titel, Zaal, Vergaderjaar, Datum", links: "Verslag, Activiteit" },
+      { name: "Verslag", desc: "Meeting minutes / stenograms", cols: "Id, Vergadering_Id, Soort, Status", links: "→ Vergadering" },
+      { name: "Toezegging", desc: "Ministerial promises", cols: "Id, Nummer, Naam, Functie, Status, Tekst", links: "→ Persoon" },
+      { name: "Zaal", desc: "Rooms in parliament", cols: "Id, Naam, SysCode", links: "Reservering" },
+    ];
+
+    const container = document.getElementById("entities-list");
+    entities.forEach(e => {
+      const card = document.createElement("div");
+      card.className = "entity-card";
+      card.innerHTML = `
+        <h4>${e.name}</h4>
+        <div class="desc">${e.desc}</div>
+        <div class="cols">${e.cols}</div>
+        <div class="links">Links: ${e.links}</div>
+      `;
+      container.appendChild(card);
+    });
+
+    document.querySelectorAll(".tabs button").forEach(btn => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll(".tabs button").forEach(b => b.classList.remove("active"));
+        document.querySelectorAll(".section").forEach(s => s.classList.remove("active"));
+        btn.classList.add("active");
+        document.getElementById(btn.dataset.tab).classList.add("active");
+      });
+    });
+  </script>
+</body>
+</html>

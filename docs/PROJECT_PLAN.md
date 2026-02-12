@@ -1,10 +1,34 @@
-# Far-Right Rise Analysis — Full Project Plan
+# Speech-to-Vote Prediction — Full Project Plan
 
 ## Project overview
 
-A semester-long (16-week) university project for 5 people analyzing the rise of far-right parties (PVV, FvD, JA21) in the Dutch Tweede Kamer. Combines parliamentary open data with NLP, machine learning, and social science theory.
+A semester-long (16-week) university project for 5 people. **Core question: Can we predict how a parliamentarian will vote on a bill based on what they say in the debate?**
 
-**Deliverables**: Research paper, presentation, interactive dashboard.
+MP gives a speech → we extract features from the speech text → we predict their vote (Voor / Tegen / Niet deelgenomen).
+
+Uses the Dutch Tweede Kamer open data: debate transcripts (Verslagen), votes (Stemming), and the full parliamentary information model.
+
+**Deliverables**: Research paper, presentation, interactive dashboard, trained prediction model.
+
+---
+
+## The core idea
+
+```
+┌─────────────────────┐      ┌──────────────┐      ┌────────────────┐
+│  Debate transcript   │      │   Features   │      │   Prediction   │
+│  (Verslag XML)       │─────►│  from speech │─────►│  Voor / Tegen  │
+│                      │      │  text + meta │      │  / Niet        │
+│  "Voorzitter, dit    │      │              │      │                │
+│   wetsvoorstel is    │      │  sentiment,  │      │  XGBoost /     │
+│   onacceptabel..."   │      │  topic, tone │      │  BERT / etc.   │
+└─────────────────────┘      └──────────────┘      └────────────────┘
+```
+
+**Data chain:**
+- `Vergadering` → `Verslag` (transcript XML with individual speech segments)
+- `Vergadering` → `Activiteit` → `Agendapunt` → `Besluit` → `Stemming` (votes)
+- Link: speech by Person X during debate on Agendapunt Y → their vote on Besluit for Agendapunt Y
 
 ---
 
@@ -12,10 +36,10 @@ A semester-long (16-week) university project for 5 people analyzing the rise of 
 
 | Role | Person | Focus area |
 |------|--------|------------|
-| **Person 1** | Data Engineer | Pipeline, data cleaning, linking external datasets, infrastructure |
-| **Person 2** | NLP Researcher | Text analysis, topic modeling, sentiment, populism detection |
-| **Person 3** | ML Engineer | Vote prediction, motion outcomes, classification models |
-| **Person 4** | Social Science Researcher | Theory, literature review, research design, interpretation |
+| **Person 1** | Data Engineer | Pipeline, speech extraction, linking speeches to votes, infrastructure |
+| **Person 2** | NLP Researcher | Speech text processing, embeddings, feature extraction from text |
+| **Person 3** | ML Engineer | Prediction models, experiment tracking, evaluation |
+| **Person 4** | Social Science Researcher | Theory, literature review, interpretation, qualitative analysis |
 | **Person 5** | Visualization & Integration Lead | Dashboard, paper writing, presentation, project management |
 
 ---
@@ -27,353 +51,355 @@ A semester-long (16-week) university project for 5 people analyzing the rise of 
 - Read [DATASET.md](DATASET.md) and the [README.md](../README.md)
 - Run the pipeline (`python pipeline.py`) so everyone has local data
 - Explore the official API docs: https://opendata.tweedekamer.nl/documentatie/informatiemodel
-- Agree on research questions (see Phase 2)
+- **Key focus**: understand how Verslag (transcripts) connect to Stemming (votes)
 - Set up shared Git workflow (feature branches, PR reviews)
 
 ### Person 1 — Data infrastructure
 
-**Week 1-2: Data audit and enrichment**
+**Week 1-2: Data audit and speech data acquisition**
 
-- Run pipeline, verify all 38 entities downloaded
+- Run pipeline, verify all entities downloaded
+- **Critical task**: Fetch `Verslag` entity (meeting transcripts)
+  - Verslag contains XML text of debates (stenograms)
+  - Each Verslag links to a Vergadering via `Vergadering_Id`
+  - Download the actual XML content via:
+    `https://gegevensmagazijn.tweedekamer.nl/OData/v4/2.0/Verslag/{id}/resource`
+  - Store as `data/texts/{VerslagId}.xml`
 - Profile every parquet file: row counts, column types, null rates, date ranges
-- Create a data dictionary notebook (`notebooks/01_data_audit.ipynb`) documenting every column in every entity
-- Identify the far-right parties in `Fractie`:
-  - PVV (Partij voor de Vrijheid) — Wilders, entered 2006
-  - FvD (Forum voor Democratie) — Baudet, entered 2017
-  - JA21 — split from FvD, entered 2021
-  - LPF (Lijst Pim Fortuyn) — 2002-2006 (historical, may be partially in data)
+- Create `notebooks/01_data_audit.ipynb` documenting every entity
 
-**Week 2-3: External data linking**
+**Week 2-3: Speech-to-vote linking pipeline**
 
-- Download and integrate external datasets:
-  - **Election results** (Kiesraad): seat counts per party per election
-  - **Polls** (Peilingwijzer / I&O Research): monthly party support
-  - **Chapel Hill Expert Survey (CHES)**: party positions on left-right, immigration, EU
-  - **Manifesto Project (MARPOR)**: coded party manifestos
-  - **CBS StatLine**: demographics, immigration numbers, unemployment
-- Create a unified time index (by vergaderjaar or calendar year) for merging
+- Build the critical data link — this is the hardest data engineering task:
+  1. Parse Verslag XML to extract individual speech segments
+     - Each speech has: speaker name, party, text content, timestamp
+     - Verslag XML format uses `<spreker>` and `<tekst>` elements
+  2. Link speeches to agenda items:
+     - Verslag → Vergadering → Activiteit → Agendapunt
+     - Match speech segments to the Agendapunt being discussed (by order/time)
+  3. Link agenda items to votes:
+     - Agendapunt → Besluit → Stemming
+  4. Final join: Speech(person, text) → Vote(person, Voor/Tegen)
 - Build helper functions in `src/utils.py`:
+  - `parse_verslag_xml(xml_path)` → list of speech segments
   - `get_party_mps(fractie, date)` — who sits for a party at a given time
-  - `get_far_right_ids()` — returns set of Fractie_Ids for PVV, FvD, JA21
   - `get_voting_record(persoon_id)` — all votes for an MP
-  - `classify_topic(zaak)` — keyword-based topic tagger (v1)
+  - `link_speech_to_vote(verslag_id)` — returns (speech_text, vote) pairs
+- Create `data/analysis/speech_vote_pairs.parquet`:
+  - Columns: Persoon_Id, PersonName, Fractie, SpeechText, Agendapunt_Id, Besluit_Id, Vote (Voor/Tegen/Niet), Date, Vergaderjaar
+  - This is the **master dataset** for the whole project
 
-**Week 3: Document text fetcher**
+**Week 3: Data quality check**
 
-- Build a script (`src/fetch_documents.py`) to download actual document PDFs/text via:
-  `https://gegevensmagazijn.tweedekamer.nl/OData/v4/2.0/Document/{id}/resource`
-- Focus on key document types: Motie, Amendement, Schriftelijke vragen, Brief regering
-- Extract text from PDFs (use `pymupdf` or `pdfplumber`)
-- Store as `data/texts/{DocumentId}.txt`
-- This is rate-limited — prioritize far-right authored documents and immigration-related cases
+- How many speech-vote pairs can we link? (target: thousands)
+- What's the coverage? (% of votes where we have a preceding speech)
+- What's the class balance? (Voor vs. Tegen vs. Niet deelgenomen)
+- Write up findings in `notebooks/01b_data_quality.ipynb`
 
 ### Person 2 — NLP groundwork
 
-**Week 1-2: Literature review on Dutch NLP for parliamentary text**
+**Week 1-2: Literature review on speech-to-vote prediction**
 
-- Survey existing Dutch NLP models:
+- Survey existing work:
+  - **Predicting Congressional Votes** (Thomas et al., 2006) — classic speech-vote paper
+  - **Capturing the Style of Parliamentary Debates** (Rheault et al., 2016)
+  - **Predicting Votes from Debate** (Stab et al., 2018) — argument mining
+  - **How to Frame a Politician** (Johnson & Goldwasser, 2018) — framing and voting
+  - **BERT for legislative text** (recent papers using transformers on parliamentary data)
+- Survey Dutch NLP models:
   - **BERTje** (Dutch BERT): https://github.com/wietsedv/bertje
   - **RobBERT** (Dutch RoBERTa): https://github.com/iPieter/RobBERT
-  - **multilingual models**: XLM-RoBERTa
-- Read key papers:
-  - Rooduijn & Pauwels (2011) — measuring populism in party manifestos
-  - Hawkins et al. (2019) — Team Populism coding scheme
-  - Grundl (2020) — populism dictionary approach
+  - **Multilingual models**: XLM-RoBERTa
 - Document findings in `docs/NLP_LITERATURE.md`
 
 **Week 2-3: Baseline text processing**
 
-- Build text preprocessing pipeline (`src/nlp/preprocess.py`):
+- Build speech text preprocessing pipeline (`src/nlp/preprocess.py`):
+  - Clean XML artifacts, formatting noise
   - Dutch tokenization (spaCy `nl_core_news_lg`)
-  - Stopword removal, lemmatization
+  - Sentence splitting (speeches can be long)
   - Named entity recognition for people, parties, organizations
-- Create keyword dictionaries for key topics:
-  - Immigration: immigratie, asiel, vluchtelingen, integratie, islam, grenzen...
-  - Economy: werkgelegenheid, belasting, economie, begroting...
-  - EU/sovereignty: Europa, Brussel, soevereiniteit, nexit...
-  - Security: veiligheid, criminaliteit, terrorisme, politie...
-  - Healthcare: zorg, gezondheid, ziekenhuis...
-- Test on sample of Document titles and Zaak onderwerpen
+- Create keyword dictionaries for topic detection:
+  - Immigration, Economy, EU/sovereignty, Security, Healthcare, Education, etc.
+- Compute basic speech statistics:
+  - Average speech length per party
+  - Vocabulary richness
+  - Most common topics per party
 
 ### Person 3 — ML groundwork
 
-**Week 1-2: Data exploration for ML**
+**Week 1-2: Voting data exploration**
 
 - Create `notebooks/02_voting_exploration.ipynb`:
-  - Load Stemming, join with Besluit, Zaak, Fractie, Persoon
+  - Load Stemming, join with Besluit, Agendapunt, Fractie, Persoon
   - Compute basic stats: votes per party, Voor/Tegen rates
+  - How predictable are votes from party alone? (majority-class baseline)
   - Visualize party cohesion over time
-  - Identify far-right voting patterns vs. mainstream
-- Create `notebooks/03_motion_exploration.ipynb`:
-  - Load Zaak where Soort = "Motie"
-  - Join with ZaakActor (sponsors), Besluit (outcome), Stemming (votes)
-  - Compute motion acceptance rates by party
+- Create `notebooks/03_baseline_predictions.ipynb`:
+  - **Baseline 1**: Always predict majority vote of the party → what accuracy?
+  - **Baseline 2**: Predict based on party + topic → what accuracy?
+  - These baselines tell us: how much does speech text *add* beyond party membership?
 
 **Week 2-3: Feature engineering plan**
 
-- Document planned features for vote prediction:
-  - Party membership (one-hot)
-  - Topic of the Zaak (from keyword classifier or topic model)
-  - Cabinet appreciation (Kabinetsappreciatie)
-  - Sponsoring party
-  - Historical voting similarity between parties
-  - Time features (vergaderjaar, month)
-  - MP tenure, committee memberships
+- Document planned feature categories:
+  - **Speech features** (from NLP): sentiment, topic, key phrases, speech length, argumentative structure
+  - **Speaker features**: party, tenure, committee memberships, historical voting pattern
+  - **Bill features**: topic of the Zaak, cabinet appreciation (Kabinetsappreciatie), sponsoring party
+  - **Context features**: vergaderjaar, coalition/opposition status
 - Set up ML experiment framework:
   - `src/ml/features.py` — feature extraction
   - `src/ml/models.py` — model training
   - `src/ml/evaluate.py` — evaluation metrics
-  - Use `sklearn` pipelines, `mlflow` or simple CSV logging for experiment tracking
+  - Use `sklearn` pipelines, simple CSV logging for experiment tracking
 
 ### Person 4 — Social science research
 
-**Week 1-3: Full literature review**
+**Week 1-3: Literature review**
 
-Research and write up the following theories (target: `docs/LITERATURE_REVIEW.md`):
+Research and write up (target: `docs/LITERATURE_REVIEW.md`):
 
-**A. Demand-side theories (why voters turn to far-right)**
+**A. Parliamentary speech and voting behavior**
 
-- **Modernization losers thesis** (Betz 1994): Globalization creates economic losers who turn to far-right
-  - Measure: correlate unemployment/immigration data (CBS) with far-right vote share
-- **Cultural backlash thesis** (Norris & Inglehart 2019): Reaction against progressive value change
-  - Measure: topic salience of identity/immigration in parliamentary debate
-- **Relative deprivation theory** (Gurr 1970): Perceived gap between expectations and reality
-  - Measure: sentiment in government responses vs. opposition rhetoric
+- **Signaling theory** (Mayhew 1974): MPs use speeches to signal positions to voters, not to persuade colleagues
+  - Implication: speech may predict vote because both reflect the same underlying position
+- **Party discipline theory** (Bowler et al. 1999): Party whips control votes; speeches may deviate more than votes
+  - Implication: speeches may show personal opinion, votes show party line — mismatches are interesting
+- **Deliberation theory** (Habermas 1996): Debate actually changes minds
+  - Implication: if speeches predict votes perfectly, deliberation may not matter; if poorly, debate has real effects
 
-**B. Supply-side theories (what far-right parties do)**
+**B. Computational political science**
 
-- **Issue ownership theory** (Petrocik 1996): Parties "own" certain issues; far-right owns immigration
-  - Measure: share of immigration-related Zaak/Document initiated by far-right vs. others
-- **Populism theory** (Mudde 2004): Thin-centered ideology: "pure people" vs. "corrupt elite"
-  - Measure: populism scores in parliamentary texts (NLP)
-- **Mainstreaming thesis** (Akkerman et al. 2016): Mainstream parties adopt far-right positions
-  - Measure: topic and rhetoric convergence over time between VVD/CDA and PVV/FvD
+- **Text-as-data** (Grimmer & Stewart 2013): Using text to measure political positions
+- **Ideal point estimation** (Clinton et al. 2004): Placing politicians on a spectrum from votes
+- **Wordscoring / Wordfish** (Laver et al. 2003; Slapin & Proksch 2008): Placing politicians on a spectrum from text
+- **Speech-vote alignment** (Lauderdale & Herzog 2016): Do words predict positions?
 
-**C. Institutional theories (how parliament shapes outcomes)**
+**C. Dutch parliamentary politics**
 
-- **Agenda-setting theory** (Baumgartner & Jones 1993): Who controls what gets discussed
-  - Measure: share of agenda items initiated by far-right, topic distribution over time
-- **Coalition theory**: Cordon sanitaire vs. cooperation
-  - Measure: voting alignment networks, co-sponsorship patterns
-- **Responsiveness theory** (Hobolt & Klemmensen 2008): Do mainstream parties respond to far-right?
-  - Measure: topic adoption lag — does mainstream pick up far-right topics after delay?
+- Coalition vs. opposition dynamics in the Netherlands
+- Role of the Tweede Kamer in legislative process
+- Party discipline in Dutch politics (relatively strong)
 
-**Deliverable**: 15-20 page literature review with hypotheses mapped to measurable indicators.
+**Deliverable**: 15-20 page literature review with hypotheses.
 
 ### Person 5 — Project management and visualization setup
 
 **Week 1-2: Project infrastructure**
 
 - Set up project board (GitHub Projects or Trello)
-- Define milestone schedule (this plan, adapted)
+- Define milestone schedule (this plan)
 - Create `docs/RESEARCH_DESIGN.md` — formalize research questions:
-  1. How has the parliamentary agenda on immigration/identity changed over time?
-  2. Do far-right parties exhibit distinctive rhetorical patterns (populism, negativity)?
-  3. Can we predict voting behavior, and what does the model reveal about far-right alignment?
-  4. Have mainstream parties shifted their rhetoric/voting toward far-right positions?
-  5. What factors predict the success/failure of far-right motions?
+  1. Can parliamentary speech predict individual voting behavior?
+  2. How much predictive power does speech text add beyond party membership alone?
+  3. What speech features (sentiment, topic, key phrases) are most predictive?
+  4. When do speeches and votes diverge? (rebellion, cross-party dynamics)
+  5. Do prediction patterns differ across parties, topics, or time periods?
 
 **Week 2-3: Dashboard skeleton**
 
 - Choose framework: **Streamlit** (fastest for Python team) or **Plotly Dash**
 - Create `app/dashboard.py` with placeholder pages:
-  - Overview (party seat counts over time)
-  - Voting analysis
-  - Topic trends
-  - Network visualization
+  - Overview (dataset stats, speech-vote pair counts)
+  - Speech explorer (browse speeches with vote outcomes)
   - Model results
+  - Prediction demo (paste a speech → get vote prediction)
 - Set up basic data loading from processed parquet files
 
 ---
 
 ## Phase 2: Core Analysis (Weeks 4-9)
 
-### Person 1 — Data pipelines for analysis
+### Person 1 — Data pipelines
 
-**Week 4-5: Voting dataset**
+**Week 4-5: Master dataset refinement**
 
-- Create `src/analysis/voting.py`:
-  - Build a flat voting table: one row per (Stemming, Persoon, Fractie, Besluit, Zaak)
-  - Add topic labels (from Person 2's keyword classifier)
-  - Add temporal features
-  - Export as `data/analysis/voting_flat.parquet`
-- Create party-level aggregation: per-party Voor/Tegen percentages per Besluit
-- Create party-pair voting similarity matrix per vergaderjaar
+- Refine `speech_vote_pairs.parquet`:
+  - Clean edge cases: MPs who speak but don't vote, fractie-level votes vs. individual
+  - Handle "Niet deelgenomen" — decide: include as 3rd class or exclude?
+  - Add speaker metadata: party, tenure at time of speech, committee roles
+  - Add bill metadata: topic, cabinet appreciation, sponsor party
+- Create train/validation/test splits:
+  - **Temporal split**: train ≤ 2021, validation 2022, test 2023-2025
+  - Alternative: **speaker split** (train on some MPs, test on unseen MPs)
+- Export as `data/analysis/train.parquet`, `data/analysis/val.parquet`, `data/analysis/test.parquet`
 
-**Week 5-6: Document corpus**
+**Week 5-7: Aggregated analysis datasets**
 
-- Process downloaded document texts into clean corpus
-- Create `data/analysis/document_corpus.parquet`:
-  - Columns: DocumentId, FractieId, PartyName, Soort, Titel, Onderwerp, FullText, Date, Vergaderjaar
-  - Filter to key types: Motie, Amendement, Schriftelijke vragen
-- Create far-right vs. mainstream subsets
+- Party-level voting alignment matrix per vergaderjaar
+- Per-MP speech statistics: average sentiment, topic distribution, speech frequency
+- Per-topic prediction difficulty: which topics are hardest to predict?
+- Export for dashboard use
 
-**Week 6-7: Network datasets**
+**Week 7-9: Additional data**
 
-- Build co-sponsorship network from ZaakActor:
-  - Nodes = parties, edges = number of co-sponsored cases
-  - Per vergaderjaar
-- Build voting alignment network from Stemming:
-  - Nodes = parties, edges = voting agreement percentage
-  - Per vergaderjaar and per topic
+- If speech XML download is incomplete, build fallback:
+  - Use Activiteit.Onderwerp + Zaak.Titel as proxy for speech topic
+  - Use ActiviteitActor to know who participated (even without transcript text)
+- Optionally fetch external data:
+  - Election results for context
+  - Coalition composition per vergaderjaar
 
-**Week 7-9: External data integration**
+### Person 2 — NLP feature engineering
 
-- Merge election results, polls, CHES positions into time-indexed dataset
-- Create `data/analysis/context_timeline.parquet`:
-  - Year, far-right seat share, poll numbers, immigration numbers, unemployment
-  - CHES party positions on key dimensions
+**Week 4-5: Speech embeddings**
 
-### Person 2 — NLP analysis
+- Generate embeddings for all speech texts:
+  - **Option A**: Sentence-level embeddings with `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`
+  - **Option B**: Fine-tuned RobBERT embeddings
+  - **Option C**: TF-IDF (interpretable baseline)
+- Handle long speeches: truncate, chunk + average, or use sliding window
+- Create `notebooks/04_speech_embeddings.ipynb`:
+  - Visualize embedding space with t-SNE/UMAP
+  - Color by party → do parties cluster?
+  - Color by vote → do Voor/Tegen separate?
 
-**Week 4-5: Topic modeling**
+**Week 5-7: Feature extraction from speech text**
 
-- Apply BERTopic to Document titles + onderwerpen + Zaak titles:
-  - Use Dutch sentence-transformers (`sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`)
-  - Extract 20-50 topics
-  - Manually label top topics (immigration, economy, EU, etc.)
-  - Save topic assignments per document/zaak
-- Create `notebooks/04_topic_modeling.ipynb` with:
-  - Topic distribution over time
-  - Topic distribution per party
-  - Far-right topic focus vs. mainstream
+- Build feature extraction pipeline (`src/nlp/features.py`):
+  - **Sentiment**: positive/negative/neutral (RobBERT zero-shot or Dutch sentiment model)
+  - **Topic**: keyword-based or BERTopic assignment
+  - **Stance markers**: "voor", "tegen", "steun", "verwerp", "onaanvaardbaar" — explicit vote signals in text
+  - **Argumentative features**: number of claims, evidence, rebuttals (simplified argument mining)
+  - **Rhetorical features**: speech length, sentence complexity, question marks (asking vs. stating)
+  - **Named entities**: which parties/people are mentioned
+- Create `data/analysis/speech_features.parquet`:
+  - One row per speech, all extracted features as columns
 
-**Week 5-7: Sentiment and populism analysis**
+**Week 7-9: Advanced NLP**
 
-- Sentiment analysis on document texts:
-  - Test zero-shot with RobBERT
-  - If poor, fine-tune on 200-300 manually labeled sentences
-  - Score: negative/neutral/positive per document
-- Populism detection:
-  - Implement dictionary-based approach (Rooduijn & Pauwels word list)
-  - Count populism markers per document: anti-elite, people-centrism, exclusionism
-  - Validate against CHES expert scores
-  - If time: fine-tune classifier on Team Populism labeled data
+- **Fine-tuned classifier** (if base model underperforms):
+  - Fine-tune RobBERT on speech text → vote prediction directly (end-to-end)
+  - Compare with feature-based approach
+- **Attention analysis**: Which words does the model attend to when predicting Voor vs. Tegen?
+  - Use SHAP or attention weights to explain predictions
+- **Cross-party language analysis**:
+  - Do MPs from different parties use different language when voting the same way?
+  - Do opposition speeches sound different from coalition speeches on the same topic?
 
-**Week 7-9: Rhetoric convergence analysis**
+### Person 3 — Prediction models
 
-- For each vergaderjaar, compute:
-  - Average populism score per party
-  - Average sentiment per party
-  - Topic distribution per party
-- Test **mainstreaming hypothesis**:
-  - Does VVD/CDA populism score increase after PVV/FvD gains?
-  - Does mainstream topic distribution shift toward immigration after far-right success?
-  - Use Granger causality or simple lagged correlation
+**Week 4-6: Core vote prediction models**
 
-### Person 3 — Machine learning models
+Build prediction pipeline using `speech_vote_pairs.parquet` + `speech_features.parquet`:
 
-**Week 4-6: Vote prediction model**
+**Model progression** (each builds on the previous):
 
-- Build feature matrix from `voting_flat.parquet`:
-  - Features: party (one-hot), topic, cabinet appreciation, vergaderjaar, sponsor party, MP tenure
-  - Target: Voor / Tegen / Niet deelgenomen
-- Train/test split: temporal (train <= 2020, test 2021-2025)
-- Models to try:
-  - Logistic Regression (baseline)
-  - Random Forest
-  - XGBoost / LightGBM
-  - (Optional) LSTM on voting sequences
-- **Target metrics**:
-  - Overall accuracy, macro F1
-  - Per-party accuracy (especially PVV, FvD)
-  - Feature importance analysis
-- Key analysis: **When does the model fail?** — these are the interesting cases (party rebellion, cross-party alignment)
+| Model | Features | Purpose |
+|-------|----------|---------|
+| **Baseline 1** | Party only (one-hot) | Lower bound — how much does party explain? |
+| **Baseline 2** | Party + topic + cabinet appreciation | Structured metadata only (no speech text) |
+| **Model A** | Baseline 2 + TF-IDF of speech | Does text add value over metadata? |
+| **Model B** | Baseline 2 + speech embeddings | Dense text representation |
+| **Model C** | Baseline 2 + extracted speech features (sentiment, stance, etc.) | Interpretable speech features |
+| **Model D** | Fine-tuned RobBERT (end-to-end) | Full neural approach |
+
+- Algorithms for Models A-C: Logistic Regression, Random Forest, XGBoost/LightGBM
+- Temporal train/test split
+- **Target metrics**: Accuracy, macro F1, per-party F1, AUC-ROC
 - Create `notebooks/05_vote_prediction.ipynb`
 
-**Week 6-8: Motion outcome prediction**
+**Week 6-8: Analysis of predictions**
 
-- Build feature matrix:
-  - Features: sponsoring party, topic, number of co-sponsors, cabinet appreciation, vergaderjaar
-  - Target: motion accepted / rejected (from Besluit + Stemming aggregation)
-- Same model pipeline as vote prediction
-- Key analysis: What predicts far-right motion success? Are more passing over time?
-- Create `notebooks/06_motion_prediction.ipynb`
+- **Feature importance**: What speech features matter most? (SHAP values)
+- **Error analysis**: When does the model fail?
+  - Party rebellions (MP votes against party majority)
+  - Conscience votes (free votes, no party whip)
+  - Close votes (narrow margins)
+- **Ablation study**: Remove speech features → how much does accuracy drop?
+  - This answers: "Does speech add predictive value beyond party + metadata?"
+- Create `notebooks/06_error_analysis.ipynb`
 
-**Week 8-9: Party text classification**
+**Week 8-9: Extended models**
 
-- Binary classifier: far-right authored vs. mainstream authored documents
-- Features: TF-IDF or Dutch BERT embeddings of document text
-- Train on documents with known DocumentActor party
-- **Key output**: What words/topics are most distinctive for far-right? How has this changed over time?
-- Temporal analysis: train on 2010-2015, test on 2020-2025 — does the boundary blur? (mainstreaming signal)
-- Create `notebooks/07_party_classification.ipynb`
+- **Per-topic models**: Train separate models for immigration, economy, healthcare
+  - Are some topics harder to predict?
+- **Per-party models**: Train models for specific parties
+  - Which parties are most predictable from speech? Least?
+- **Temporal analysis**: Train on 2013-2018, test on 2019-2025
+  - Does prediction accuracy degrade over time? (concept drift)
+- **Rebellion detector**: Binary classifier — will this MP rebel (vote against party)?
+  - Features: speech text, historical rebellion rate, topic
+  - This is the most practically interesting sub-model
+- Create `notebooks/07_extended_models.ipynb`
 
-### Person 4 — Hypothesis testing and interpretation
+### Person 4 — Hypotheses and interpretation
 
 **Week 4-5: Formalize hypotheses**
 
-- Write formal, testable hypotheses (in `docs/HYPOTHESES.md`):
+Write formal, testable hypotheses (in `docs/HYPOTHESES.md`):
 
-  **H1 (Issue salience)**: The share of immigration-related parliamentary items has increased over time, and far-right parties initiate a disproportionate share.
+**H1 (Speech predicts vote)**: Individual speech text significantly predicts voting behavior beyond party membership alone.
 
-  **H2 (Populism)**: Far-right party documents score significantly higher on populism metrics than mainstream party documents.
+**H2 (Stance words)**: Explicit stance markers in speech (e.g. "steun", "verwerp", "onaanvaardbaar") are the strongest textual predictors of voting.
 
-  **H3 (Mainstreaming)**: Mainstream-right parties (VVD, CDA) show increasing populism scores and immigration topic focus over time, especially after elections where far-right gains seats.
+**H3 (Sentiment signal)**: Speeches with more negative sentiment toward a bill predict a "Tegen" vote; positive sentiment predicts "Voor".
 
-  **H4 (Voting alignment)**: Voting alignment between mainstream-right and far-right has increased over time on immigration-related votes but not on other topics.
+**H4 (Party discipline)**: Prediction accuracy is higher for parties with strong party discipline (e.g. PVV, SGP) and lower for parties with more internal diversity (e.g. D66, GroenLinks-PvdA).
 
-  **H5 (Motion success)**: Far-right motion acceptance rates have increased over time, and immigration-related motions show the largest increase.
+**H5 (Topic variation)**: Prediction difficulty varies by topic — emotionally charged topics (immigration, identity) show more speech-vote divergence than technical topics (budget, infrastructure).
 
-  **H6 (Predictability)**: Votes on immigration-related topics are less predictable by party affiliation alone than votes on other topics, indicating cross-party dynamics.
+**H6 (Coalition effect)**: Coalition party MPs are more predictable (they follow party line + coalition agreement) than opposition MPs.
+
+**H7 (Rebellion signal)**: When an MP will rebel against their party, linguistic markers in their speech differ from party-line speeches.
 
 **Week 5-7: Statistical testing**
 
 - For each hypothesis, define:
   - Null and alternative hypothesis
-  - Statistical test (t-test, chi-square, regression, time series)
+  - Statistical test (t-test, chi-square, regression, permutation test)
   - Effect size measure
-  - Confounders to control for
-- Work with Person 2 (NLP results) and Person 3 (ML results) to run tests
+- Work with Person 2 and Person 3 to validate
 - Create `notebooks/08_hypothesis_tests.ipynb`
 
-**Week 7-9: Qualitative validation**
+**Week 7-9: Qualitative analysis**
 
-- Select key cases (specific debates, votes, motions) that illustrate quantitative findings
-- Write case studies for the paper:
-  - Example: A specific immigration debate where mainstream parties voted with PVV
-  - Example: A motion by FvD that was adopted with VVD support
-- Cross-reference with news coverage and academic literature
+- Select 20-30 interesting cases:
+  - Speeches where prediction was correct with high confidence
+  - Speeches where prediction was wrong (surprises)
+  - Rebellion cases: MP speaks one way, votes another (or vice versa)
+- Manually analyze these speeches: what was the context?
+- Cross-reference with news coverage of key debates
+- Write up case studies for the paper
 
 ### Person 5 — Dashboard and visualization
 
 **Week 4-6: Core dashboard pages**
 
-- **Page 1: Parliamentary landscape**
-  - Party seat counts over time (stacked area chart)
-  - Far-right seat share trend line
-  - Election markers on timeline
-- **Page 2: Topic trends**
-  - Stacked area chart of topic shares over time
-  - Immigration topic highlighted
-  - Per-party topic distribution (grouped bar)
-- **Page 3: Voting analysis**
-  - Party voting alignment heatmap (interactive, per vergaderjaar)
-  - Far-right voting agreement with each party over time
-  - Drill-down: click a party pair to see specific votes
+- **Page 1: Dataset overview**
+  - Total speeches, votes, speech-vote pairs
+  - Party distribution, time distribution
+  - Interactive filters: date range, party, topic
+- **Page 2: Speech explorer**
+  - Browse individual speeches with their vote outcome
+  - Highlight stance words and sentiment markers in text
+  - Filter by party, topic, correct/incorrect prediction
+- **Page 3: Model comparison**
+  - Bar chart: accuracy of each model (Baseline 1 → Model D)
+  - Shows the "lift" from adding speech features
+  - Per-party accuracy breakdown
 
 **Week 6-8: Advanced dashboard pages**
 
-- **Page 4: Network view**
-  - Co-sponsorship network graph (nodes = parties, edges = co-sponsored motions)
-  - Animated over time (slider by vergaderjaar)
-  - Highlight far-right connections
-- **Page 5: NLP results**
-  - Populism score trends per party
-  - Sentiment trends per party
-  - Word clouds per party per period
-  - Topic model visualization (intertopic distance map)
-- **Page 6: Model results**
-  - Vote prediction accuracy dashboard
-  - Feature importance charts
-  - Confusion matrices
-  - "Interesting failures" explorer — browse votes where model was wrong
+- **Page 4: Feature importance**
+  - SHAP summary plot: which features drive predictions
+  - Interactive: select a speech → see feature contributions
+  - Word cloud of most predictive terms for Voor vs. Tegen
+- **Page 5: Error analysis**
+  - Confusion matrix per party
+  - Rebellion cases highlighted
+  - Timeline of prediction accuracy (does it change over vergaderjaren?)
+- **Page 6: Live prediction demo**
+  - Text input box: paste a speech excerpt
+  - Select party + topic context
+  - Model outputs: predicted vote + confidence + explanation
+  - "This speech sounds 78% like a Tegen vote because of: negative sentiment, words X, Y, Z"
 
 **Week 8-9: Polish and interactivity**
 
-- Add filters: date range, party selection, topic filter
-- Add tooltips and explanations for non-technical audience
-- Performance optimization (cache parquet loads)
+- Add filters, tooltips, explanations
+- Performance optimization
+- Export static figures for the paper
 
 ---
 
@@ -385,37 +411,47 @@ Structure (target: 30-40 pages):
 
 ```
 1. Introduction (Person 4 + Person 5)
-   - Research question, relevance, Dutch political context
+   - Can we predict votes from speeches?
+   - Why this matters (transparency, deliberation theory)
+   - Dutch parliamentary context
 
 2. Literature Review (Person 4)
-   - Theories, hypotheses, prior work
+   - Speech-to-vote prediction prior work
+   - Party discipline, signaling, deliberation
+   - Computational political science methods
 
 3. Data and Methods (Person 1 + Person 2 + Person 3)
-   - Data sources, pipeline, NLP methods, ML models
+   - Tweede Kamer open data pipeline
+   - Speech extraction and linking methodology
+   - NLP feature engineering
+   - Model architectures and evaluation design
 
 4. Results
-   4.1 Descriptive: Topic trends, agenda shifts (Person 2)
-   4.2 NLP: Populism and sentiment analysis (Person 2)
-   4.3 ML: Vote prediction and feature analysis (Person 3)
-   4.4 Networks: Voting alignment and co-sponsorship (Person 1)
-   4.5 Hypothesis tests (Person 4)
+   4.1 Dataset description: speech-vote pairs stats (Person 1)
+   4.2 NLP features: what speeches look like (Person 2)
+   4.3 Prediction results: model comparison + ablation (Person 3)
+   4.4 Feature importance: what in speech predicts votes (Person 2 + 3)
+   4.5 Error analysis: when predictions fail (Person 3 + 4)
+   4.6 Hypothesis tests (Person 4)
 
 5. Discussion (Person 4 + Person 5)
-   - Interpretation through social science lens
-   - Limitations
+   - What does it mean that speech predicts votes?
+   - Signaling vs. deliberation: evidence from our results
+   - Party discipline differences
+   - Limitations and threats to validity
 
 6. Conclusion (Person 4)
 
 Appendix: Data dictionary, model hyperparameters,
-         full results tables (Person 1 + Person 3)
+         full results tables, case studies (ALL)
 ```
 
 ### Task division for writing weeks
 
 | Week | Person 1 | Person 2 | Person 3 | Person 4 | Person 5 |
 |------|----------|----------|----------|----------|----------|
-| 10 | Data/methods section | NLP results section | ML results section | Lit review polish | Introduction draft |
-| 11 | Network results | NLP results polish | ML results polish | Hypothesis results | Discussion draft |
+| 10 | Data/methods section | NLP features section | ML results section | Lit review polish | Introduction draft |
+| 11 | Dataset description | Feature importance | Error analysis section | Hypothesis results | Discussion draft |
 | 12 | Appendix, data dict | Review Person 3 | Review Person 2 | Discussion, conclusion | Integration, editing |
 | 13 | Final data checks | Figures polish | Figures polish | Final review | Final formatting |
 
@@ -428,6 +464,7 @@ Appendix: Data dictionary, model hyperparameters,
 - Person 5 creates slide deck structure
 - Each person drafts slides for their section (3-5 slides each)
 - Target: 20-25 slides total, 20-30 min presentation
+- **Key demo**: live prediction on the dashboard — paste a speech, get a vote prediction
 
 ### Week 15: Rehearsal and polish
 
@@ -452,43 +489,51 @@ Appendix: Data dictionary, model hyperparameters,
 ├── data/
 │   ├── raw/                      # Raw JSON (gitignored)
 │   ├── processed/                # Clean parquet (gitignored)
-│   ├── texts/                    # Document full texts (gitignored)
+│   ├── texts/                    # Verslag XML transcripts (gitignored)
 │   ├── analysis/                 # Analysis-ready datasets (gitignored)
-│   └── external/                 # Election results, polls, CHES (gitignored)
+│   │   ├── speech_vote_pairs.parquet   # MASTER DATASET
+│   │   ├── speech_features.parquet     # NLP features per speech
+│   │   ├── train.parquet
+│   │   ├── val.parquet
+│   │   └── test.parquet
+│   └── external/                 # Election results, etc. (gitignored)
 ├── docs/
 │   ├── DATASET.md                # Dataset documentation
 │   ├── PROJECT_PLAN.md           # This file
-│   ├── LITERATURE_REVIEW.md      # Social science literature
+│   ├── LITERATURE_REVIEW.md      # Academic literature
 │   ├── NLP_LITERATURE.md         # NLP methods literature
 │   ├── RESEARCH_DESIGN.md        # Research questions and design
 │   ├── HYPOTHESES.md             # Formal hypotheses
 │   └── paper/                    # LaTeX or Word paper
 ├── notebooks/
 │   ├── 01_data_audit.ipynb
+│   ├── 01b_data_quality.ipynb
 │   ├── 02_voting_exploration.ipynb
-│   ├── 03_motion_exploration.ipynb
-│   ├── 04_topic_modeling.ipynb
+│   ├── 03_baseline_predictions.ipynb
+│   ├── 04_speech_embeddings.ipynb
 │   ├── 05_vote_prediction.ipynb
-│   ├── 06_motion_prediction.ipynb
-│   ├── 07_party_classification.ipynb
+│   ├── 06_error_analysis.ipynb
+│   ├── 07_extended_models.ipynb
 │   └── 08_hypothesis_tests.ipynb
 ├── src/
 │   ├── fetch.py                  # API fetcher (exists)
 │   ├── preprocess.py             # Data preprocessor (exists)
-│   ├── fetch_documents.py        # Document text downloader (new)
+│   ├── fetch_verslagen.py        # Verslag XML downloader (new)
+│   ├── parse_verslagen.py        # XML speech parser (new)
+│   ├── link_speech_vote.py       # Speech-to-vote linker (new)
 │   ├── utils.py                  # Helper functions (new)
 │   ├── nlp/
 │   │   ├── preprocess.py         # Text preprocessing
-│   │   ├── topics.py             # Topic modeling
-│   │   ├── sentiment.py          # Sentiment analysis
-│   │   └── populism.py           # Populism detection
+│   │   ├── features.py           # Speech feature extraction
+│   │   ├── embeddings.py         # Speech embeddings
+│   │   └── stance.py             # Stance/sentiment detection
 │   ├── ml/
-│   │   ├── features.py           # Feature extraction
+│   │   ├── features.py           # Feature matrix builder
 │   │   ├── models.py             # Model training
-│   │   └── evaluate.py           # Evaluation
+│   │   └── evaluate.py           # Evaluation + SHAP
 │   └── analysis/
-│       ├── voting.py             # Voting dataset builder
-│       └── networks.py           # Network analysis
+│       └── voting.py             # Voting dataset builder
+├── models/                       # Saved trained models (gitignored)
 ├── config.yaml
 ├── pipeline.py
 ├── requirements.txt
@@ -502,9 +547,9 @@ Appendix: Data dictionary, model hyperparameters,
 
 | Week | Milestone | Gate |
 |------|-----------|------|
-| 3 | Foundation complete | Everyone has data, lit review drafted, pipelines working |
-| 6 | Core analysis halfway | Topic model trained, vote prediction baseline, hypotheses formalized |
-| 9 | All analysis complete | All notebooks done, all models evaluated, dashboard functional |
+| 3 | Foundation complete | Speech-vote pairs dataset exists, baselines computed, lit review drafted |
+| 6 | Core models trained | Vote prediction models A-D trained and evaluated, features extracted |
+| 9 | All analysis complete | Error analysis done, hypotheses tested, dashboard functional |
 | 13 | Paper complete | Full draft reviewed by all members |
 | 16 | Final delivery | Paper submitted, presentation given, dashboard demo |
 
@@ -514,8 +559,21 @@ Appendix: Data dictionary, model hyperparameters,
 
 | Risk | Mitigation |
 |------|------------|
-| Document text download is too slow / rate-limited | Prioritize: only download motions and schriftelijke vragen from far-right parties and immigration-related cases. Fall back to title+onderwerp text only. |
-| NLP models perform poorly on parliamentary Dutch | Use keyword-based approaches as baseline; these are interpretable and don't need training data. Layer ML on top only if it improves. |
-| Mixed skill levels | Person 4 (social science) and Person 5 (viz) don't need deep ML skills. Person 1 supports data needs for everyone. Pair programming sessions weekly. |
-| Scope creep | Stick to the 6 hypotheses. Everything else is "nice to have". |
-| External data hard to get | CHES and election data are freely downloadable. If CBS data is complicated, skip it and use election results as the main external source. |
+| **Verslag XML download is slow / rate-limited** | Start downloading Week 1. Prioritize plenaire vergaderingen (most votes happen there). Fall back to Activiteit metadata if transcripts unavailable. |
+| **Speech-vote linking is ambiguous** | Start with plenaire stemmingen where the link is clearest (one debate → one vote session). Skip committee-level votes initially. |
+| **Speech text doesn't add much over party label** | This is actually a finding! "Party membership explains 95% of votes" is a valid result about party discipline. Focus the paper on the 5% where speech matters (rebellions, close votes). |
+| **Dutch NLP models perform poorly** | Use keyword-based features (stance words, topic keywords) as interpretable baseline. Layer ML on top only if it improves. |
+| **Not enough speech-vote pairs** | Expand to fractie-level votes (party votes, not individual). Use ActiviteitActor (participation records) as weak proxy for speech. |
+| **Mixed skill levels** | Person 4 and 5 don't need deep ML skills. Person 1 handles all data plumbing. Pair programming sessions weekly. |
+| **Scope creep** | Core scope = vote prediction from speech. Everything else (rebellion detection, temporal analysis, per-topic models) is bonus. Stick to the 7 hypotheses. |
+
+---
+
+## What makes this project interesting
+
+1. **It's testable**: We have ground truth (actual votes) to evaluate against.
+2. **Speech adds signal**: If it doesn't, that itself is a finding about party discipline.
+3. **Error analysis is the gold**: The cases where speech says one thing but the vote says another reveal party rebellions, strategic behavior, and the limits of deliberation.
+4. **Live demo is compelling**: Paste a speech excerpt → get a vote prediction. Great for the presentation.
+5. **Combines NLP + ML + political science**: Genuine interdisciplinary work.
+6. **No one has done this for the Dutch parliament** with this dataset and modern NLP/ML methods.
