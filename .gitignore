@@ -127,6 +127,10 @@ credentials.json
 # Generated dashboard image
 dashboard.png
 
+# Verslag transcript XMLs (large, re-downloadable)
+data/texts/*
+!data/texts/.gitkeep
+
 # Summary is small & useful for quick reference, but regenerated — your call.
 # Uncomment to track it:
 # !data/processed/_summary.csv

@@ -18,7 +18,7 @@ PIP     := $(VENV)/bin/pip
 PY      := $(VENV)/bin/python
 CONFIG  := config.yaml
 
-.PHONY: help setup data fetch process summary viz clean list nuke
+.PHONY: help setup data fetch process summary viz clean list nuke speeches
 
 help: ## Show this help
 	@echo ""
@@ -57,6 +57,15 @@ viz: ## Generate data overview dashboard (dashboard.png)
 	@echo ""
 	@echo "  ✓ Dashboard saved: dashboard.png"
 	@echo ""
+
+speeches: ## Build the speech-to-vote dataset (fetch transcripts + parse + link)
+	$(PY) -m src.build_speech_dataset
+
+speeches-quick: ## Build speech dataset (skip fetch, use existing XMLs)
+	$(PY) -m src.build_speech_dataset --skip-fetch
+
+speeches-stats: ## Show stats on existing speech-vote dataset
+	$(PY) -m src.build_speech_dataset --stats
 
 clean: ## Delete all fetched and processed data
 	rm -rf data/raw/*.json data/processed/*.parquet data/processed/*.csv data/processed/_summary.csv
