@@ -147,7 +147,7 @@ def link_speeches_to_votes(
     # ── Strategy 1: Direct activiteit_id match ─────────────────────────
     # The XML's <activiteit objectid> might directly match an Activiteit
     # that has Agendapunten with Besluiten and Stemmingen
-    print("\n  Strategy 1: Direct activiteit_id → votes...")
+    print("\n  Strategy 1: Direct activiteit_id -> votes...")
 
     # Get speech activiteit_ids
     speech_act_ids = set(speeches["activiteit_id"].dropna().unique())
@@ -158,7 +158,7 @@ def link_speeches_to_votes(
     # ── Strategy 2: Vergadering date matching ──────────────────────────
     # Speeches happen during debate → votes happen in "Stemmingen" activiteit
     # on the same or nearby date. Link through date + vergaderjaar.
-    print("\n  Strategy 2: Date-based matching (debate → Stemmingen)...")
+    print("\n  Strategy 2: Date-based matching (debate -> Stemmingen)...")
 
     # Find "Stemmingen" activiteiten
     stemmingen_acts = activiteit[

@@ -162,7 +162,7 @@ def pick_best_verslagen(records: list[dict]) -> list[dict]:
     orphans = [r for r in records if not r.get("Vergadering_Id")]
     best.extend(orphans)
 
-    print(f"  {len(records):,} total verslagen → {len(best):,} best per vergadering")
+    print(f"  {len(records):,} total verslagen -> {len(best):,} best per vergadering")
     return best
 
 
@@ -270,7 +270,7 @@ def main():
     if args.only_full_text:
         before = len(best)
         best = [r for r in best if r.get("Status") != "Casco"]
-        print(f"  Filtered out Casco verslagen: {before} → {len(best)}")
+        print(f"  Filtered out Casco verslagen: {before} -> {len(best)}")
 
     # Step 3: Download XMLs
     if not args.skip_xml:

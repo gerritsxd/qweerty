@@ -222,7 +222,7 @@ def parse_verslag_xml(xml_path: Path) -> list[dict]:
                     continue
 
                 deel_spreker = deel.find("v:spreker", NS)
-                deel_info = parse_spreker(deel_spreker) if deel_spreker else {}
+                deel_info = parse_spreker(deel_spreker) if deel_spreker is not None else {}
 
                 start = None
                 end = None
@@ -238,7 +238,7 @@ def parse_verslag_xml(xml_path: Path) -> list[dict]:
                     for wv in item.findall("v:woordvoerder", NS):
                         # Speaker info (may override deel-level speaker)
                         wv_spreker = wv.find("v:spreker", NS)
-                        speaker = parse_spreker(wv_spreker) if wv_spreker else deel_info.copy()
+                        speaker = parse_spreker(wv_spreker) if wv_spreker is not None else deel_info.copy()
 
                         is_vz_el = wv.find("v:isvoorzitter", NS)
                         is_voorzitter = (
@@ -269,7 +269,7 @@ def parse_verslag_xml(xml_path: Path) -> list[dict]:
                         # Interruptions (other speakers interjecting)
                         for interr in wv.findall("v:interrumpant", NS):
                             int_spreker = interr.find("v:spreker", NS)
-                            int_speaker = parse_spreker(int_spreker) if int_spreker else {}
+                            int_speaker = parse_spreker(int_spreker) if int_spreker is not None else {}
 
                             int_vz_el = interr.find("v:isvoorzitter", NS)
                             int_is_vz = (
