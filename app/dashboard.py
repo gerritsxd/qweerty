@@ -3,31 +3,359 @@
 Streamlit dashboard for Speech-to-Vote project.
 
 Pages:
-- Overview: dataset stats, speech-vote pair counts
-- Speech explorer: browse speeches with vote outcomes
-- Model results: (placeholder)
-- Prediction demo: (placeholder)
+- Overview: dataset stats, vote distribution, temporal coverage, party breakdown
+- Speech Explorer: browse speeches with vote outcomes
+- Model Results: baseline vs Model A comparison, confusion matrix
+- Prediction Demo: live prediction with examples
+- Methodology: pipeline and model descriptions
 """
 
-import streamlit as st
+import sys
 from pathlib import Path
 
+import streamlit as st
+
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 
 
-def load_stats():
-    """Load dataset statistics."""
+@st.cache_data(ttl=3600)
+def load_overview_data():
+    """Load dataset for overview page (cached)."""
     analysis = ROOT / "data" / "analysis"
     if not (analysis / "speech_vote_pairs.parquet").exists():
         return None
     import pandas as pd
     pairs = pd.read_parquet(analysis / "speech_vote_pairs.parquet")
-    return {
-        "total_pairs": len(pairs),
-        "unique_speakers": pairs["persoon_id"].nunique(),
-        "unique_parties": pairs["fractie"].nunique(),
-        "vote_dist": pairs["vote"].value_counts().to_dict(),
-    }
+    sample = pairs.sample(200_000, random_state=42) if len(pairs) > 200_000 else pairs
+    return {"pairs": pairs, "sample": sample}
+
+
+def render_overview():
+    """Overview page with KPI cards, vote distribution, temporal chart, party breakdown."""
+    import pandas as pd
+    data = load_overview_data()
+    if data is None:
+        st.warning("Run the pipeline first: `python -m src.build_speech_dataset`")
+        return
+
+    pairs = data["pairs"]
+    sample = data["sample"]
+
+    # KPI cards
+    st.subheader("Dataset at a Glance")
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Speech-Vote Pairs", f"{len(pairs):,}")
+    with col2:
+        st.metric("Unique Speakers", f"{pairs['persoon_id'].nunique():,}")
+    with col3:
+        st.metric("Parties", pairs["fractie"].nunique())
+    with col4:
+        dates = pd.to_datetime(pairs["datum"], errors="coerce")
+        valid_dates = dates.dropna()
+        if len(valid_dates) > 0:
+            date_range = f"{valid_dates.min().year}-{valid_dates.max().year}"
+        else:
+            date_range = "N/A"
+        st.metric("Date Range", date_range)
+
+    st.caption("Data source: Tweede Kamer Open Data API")
+
+    # Vote distribution - pie chart
+    st.subheader("Vote Distribution")
+    vote_counts = pairs["vote"].value_counts()
+    if len(vote_counts) > 0:
+        import matplotlib.pyplot as plt
+        fig, ax = plt.subplots(figsize=(6, 4))
+        colors = {"Voor": "#2ecc71", "Tegen": "#e74c3c", "Niet deelgenomen": "#95a5a6"}
+        plot_colors = [colors.get(v, "#3498db") for v in vote_counts.index]
+        ax.pie(vote_counts.values, labels=vote_counts.index, autopct="%1.1f%%",
+               colors=plot_colors, startangle=90)
+        ax.axis("equal")
+        st.pyplot(fig)
+        plt.close()
+
+    # Temporal coverage
+    st.subheader("Temporal Coverage")
+    sample_copy = sample.copy()
+    sample_copy["year"] = pd.to_datetime(sample_copy["datum"], errors="coerce").dt.year
+    yearly = sample_copy["year"].dropna().astype(int).value_counts().sort_index()
+    if len(yearly) > 0:
+        st.bar_chart(yearly)
+
+    # Party breakdown (pairs per party, colored by vote)
+    st.subheader("Pairs per Party (top 15)")
+    party_vote = sample.groupby(["fractie", "vote"]).size().unstack(fill_value=0)
+    top_parties = party_vote.sum(axis=1).nlargest(15)
+    party_vote_top = party_vote.loc[top_parties.index]
+    st.bar_chart(party_vote_top)
+
+
+def render_speech_explorer():
+    """Speech Explorer with filters and vote-colored labels."""
+    data = load_overview_data()
+    if data is None:
+        st.warning("No speech_vote_pairs.parquet found.")
+        return
+
+    import pandas as pd
+    pairs = data["sample"]
+
+    st.subheader("Filter")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        parties = ["All"] + sorted(pairs["fractie"].dropna().unique().tolist())
+        party = st.selectbox("Party", parties)
+    with col2:
+        votes = ["All", "Voor", "Tegen", "Niet deelgenomen"]
+        vote_filter = st.selectbox("Vote outcome", votes)
+    with col3:
+        pairs_copy = pairs.copy()
+        pairs_copy["_year"] = pd.to_datetime(pairs_copy["datum"], errors="coerce").dt.year
+        years = sorted(pairs_copy["_year"].dropna().astype(int).unique().tolist())[:25]
+        year_filter = st.selectbox("Year", ["All"] + years)
+
+    filtered = pairs.copy()
+    filtered["_year"] = pd.to_datetime(filtered["datum"], errors="coerce").dt.year
+    if party != "All":
+        filtered = filtered[filtered["fractie"] == party]
+    if vote_filter != "All":
+        filtered = filtered[filtered["vote"] == vote_filter]
+    if year_filter != "All":
+        filtered = filtered[filtered["_year"] == year_filter]
+
+    keyword = st.text_input("Search in speech text (optional)", "")
+    if keyword:
+        filtered = filtered[filtered["speech_text"].fillna("").str.contains(keyword, case=False, na=False)]
+
+    n = st.slider("Show", 1, min(50, len(filtered)), 10)
+
+    st.subheader("Speeches")
+    vote_colors = {"Voor": "green", "Tegen": "red", "Niet deelgenomen": "gray"}
+    for _, row in filtered.head(n).iterrows():
+        vote = row.get("vote", "?")
+        color = vote_colors.get(vote, "gray")
+        label = f"[{row.get('fractie', '?')}] {row.get('achternaam', '?')} ({vote})"
+        text = str(row.get("speech_text", ""))
+        word_count = len(text.split()) if text else 0
+        topic = row.get("activiteit_onderwerp", "") or row.get("activiteithoofd_onderwerp", "")
+        with st.expander(label):
+            st.markdown(f"**Vote:** :{color}[{vote}]")
+            if topic:
+                st.caption(f"Topic: {str(topic)[:100]}")
+            st.caption(f"Words: {word_count}")
+            st.write(text[:600] + ("..." if len(text) > 600 else ""))
+
+
+def render_model_results():
+    """Model Results with accuracy chart, confusion matrix, per-party breakdown."""
+    data = load_overview_data()
+    if data is None:
+        st.warning("No speech_vote_pairs.parquet found.")
+        return
+
+    import pandas as pd
+    from src.ml.features import load_pairs, get_train_val_test
+    from src.ml.models import train_baseline_party, predict_baseline_party, train_model_a, predict_model_a, evaluate
+    from sklearn.metrics import confusion_matrix
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+
+    @st.cache_resource
+    def train_and_evaluate():
+        from src.ml.features import build_basic_features
+        df = load_pairs(sample=50000)
+        df = df[df["datum"].notna()]
+        df = build_basic_features(df)
+        train, val, test = get_train_val_test(df)
+        train = train[train["vote"].isin(["Voor", "Tegen"])]
+        val = val[val["vote"].isin(["Voor", "Tegen"])]
+        if len(train) < 1000 or len(val) < 100:
+            return None
+        model_b = train_baseline_party(train)
+        pred_b = predict_baseline_party(model_b, val)
+        r_b = evaluate(val["vote"].values, pred_b)
+        model_a = train_model_a(
+            train, max_features=5000, ngram_range=(1, 2), use_extra_features=True
+        )
+        pred_a = predict_model_a(model_a, val)
+        r_a = evaluate(val["vote"].values, pred_a)
+        return {
+            "model_b": model_b, "pred_b": pred_b, "r_b": r_b,
+            "model_a": model_a, "pred_a": pred_a, "r_a": r_a,
+            "val": val, "train": train,
+        }
+    result = train_and_evaluate()
+    if result is None:
+        st.warning("Not enough data with dates for evaluation.")
+        return
+
+    r_b, r_a = result["r_b"], result["r_a"]
+    val = result["val"]
+
+    # Key takeaway
+    st.info(
+        f"**Party identity alone** predicts **{r_b['accuracy']*100:.1f}%** of votes. "
+        f"Adding speech text (TF-IDF) gives **{r_a['accuracy']*100:.1f}%**."
+    )
+
+    # Accuracy bar chart
+    st.subheader("Model Comparison")
+    comp_df = pd.DataFrame({
+        "Model": ["Baseline (party only)", "Model A (party + TF-IDF)"],
+        "Accuracy": [r_b["accuracy"], r_a["accuracy"]],
+        "F1 (macro)": [r_b["f1_macro"], r_a["f1_macro"]],
+    })
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("Baseline (party only)", f"{r_b['accuracy']*100:.1f}%", f"F1: {r_b['f1_macro']:.3f}")
+    with col2:
+        st.metric("Model A (party + TF-IDF)", f"{r_a['accuracy']*100:.1f}%", f"F1: {r_a['f1_macro']:.3f}")
+    st.bar_chart(comp_df.set_index("Model")[["Accuracy", "F1 (macro)"]])
+
+    # Confusion matrices
+    st.subheader("Confusion Matrices")
+    col1, col2 = st.columns(2)
+    classes = ["Voor", "Tegen"]
+    with col1:
+        cm_b = confusion_matrix(val["vote"], result["pred_b"], labels=classes)
+        fig, ax = plt.subplots(figsize=(4, 3))
+        sns.heatmap(cm_b, annot=True, fmt="d", xticklabels=classes, yticklabels=classes, ax=ax, cmap="Blues")
+        ax.set_title("Baseline")
+        ax.set_ylabel("True")
+        ax.set_xlabel("Predicted")
+        st.pyplot(fig)
+        plt.close()
+    with col2:
+        cm_a = confusion_matrix(val["vote"], result["pred_a"], labels=classes)
+        fig, ax = plt.subplots(figsize=(4, 3))
+        sns.heatmap(cm_a, annot=True, fmt="d", xticklabels=classes, yticklabels=classes, ax=ax, cmap="Blues")
+        ax.set_title("Model A")
+        ax.set_ylabel("True")
+        ax.set_xlabel("Predicted")
+        st.pyplot(fig)
+        plt.close()
+
+    # Per-party accuracy
+    st.subheader("Per-Party Accuracy (Baseline)")
+    val_copy = val.copy()
+    val_copy["pred"] = result["pred_b"]
+    val_copy["correct"] = val_copy["vote"] == val_copy["pred"]
+    party_acc = val_copy.groupby("fractie").agg(
+        total=("correct", "count"),
+        correct=("correct", "sum"),
+    )
+    party_acc["accuracy"] = party_acc["correct"] / party_acc["total"]
+    party_acc = party_acc[party_acc["total"] >= 20].sort_values("accuracy", ascending=False)
+    st.dataframe(party_acc[["total", "correct", "accuracy"]].head(15), use_container_width=True)
+
+
+def render_prediction_demo():
+    """Prediction Demo with cached model, examples, confidence."""
+    data = load_overview_data()
+    if data is None:
+        st.warning("No speech_vote_pairs.parquet found.")
+        return
+
+    import pandas as pd
+    from src.ml.features import load_pairs, get_train_val_test
+    from src.ml.models import train_model_a, predict_model_a
+
+    @st.cache_resource
+    def get_model():
+        from src.ml.features import build_basic_features
+        df = load_pairs(sample=20000)
+        df = df[df["datum"].notna()]
+        df = df[df["vote"].isin(["Voor", "Tegen"])]
+        df = build_basic_features(df)
+        train, _, _ = get_train_val_test(df)
+        if len(train) < 1000:
+            return None
+        return train_model_a(
+            train, max_features=5000, ngram_range=(1, 2), use_extra_features=True
+        )
+
+    model = get_model()
+    if model is None:
+        st.error("Not enough training data.")
+        return
+
+    # Example snippets
+    examples = [
+        ("Supportive", "Voorzitter, wij steunen dit wetsvoorstel van harte. Het is een belangrijke stap voorwaarts."),
+        ("Opposing", "Dit voorstel is onaanvaardbaar. Wij stemmen tegen."),
+    ]
+    st.subheader("Try it")
+    for label, text in examples:
+        if st.button(f"Use example: {label}", key=label):
+            st.session_state["demo_text"] = text
+    if "demo_text" in st.session_state:
+        default_text = st.session_state["demo_text"]
+    else:
+        default_text = ""
+
+    text = st.text_area("Speech text (Dutch)", height=150, placeholder="Voorzitter, dit wetsvoorstel...", value=default_text)
+    party = st.selectbox("Party (fractie)", ["VVD", "PVV", "CDA", "D66", "GroenLinks-PvdA", "SP", "FvD", "ChristenUnie", "PvdD", "SGP", "DENK", "JA21", "BBB", "Other"])
+
+    if st.button("Predict") and text.strip():
+        demo_df = pd.DataFrame([{"speech_text": text, "fractie": party}])
+        pred = predict_model_a(model, demo_df)
+        # Get probability from logistic regression
+        text_col = model["tfidf"].transform(demo_df["speech_text"].fillna(""))
+        party_enc = model["party_enc"].transform(demo_df[["fractie"]].fillna("Other"))
+        from scipy.sparse import hstack
+        X = hstack([party_enc, text_col])
+        proba = model["clf"].predict_proba(X)[0]
+        classes = model["label_enc"].classes_
+        conf = dict(zip(classes, proba))
+        st.success(f"Predicted vote: **{pred[0]}**")
+        st.caption(f"Confidence: Voor {conf.get('Voor', 0):.0%}, Tegen {conf.get('Tegen', 0):.0%}")
+
+        # Top TF-IDF terms
+        try:
+            coef = model["clf"].coef_[0]
+            tfidf_names = model["tfidf"].get_feature_names_out()
+            n_party = len(model["party_enc"].get_feature_names_out())
+            tfidf_coef = coef[n_party:]
+            if len(tfidf_coef) == len(tfidf_names):
+                top_idx = tfidf_coef.argsort()[-5:][::-1]
+                top_terms = [tfidf_names[i] for i in top_idx]
+                st.caption(f"Top terms: {', '.join(top_terms)}")
+        except Exception:
+            pass
+
+
+def render_methodology():
+    """Methodology page with pipeline diagram and model descriptions."""
+    st.subheader("Pipeline")
+    st.markdown("""
+    ```
+    Raw Data (JSON)  -->  Process (parquet)  -->  Verslag XMLs
+                                                      |
+                                                      v
+    Stemming, Besluit, Activiteit  <--  Parse speeches  <--  Download XMLs
+              |                              |
+              v                              v
+         Link speeches to votes  -->  speech_vote_pairs.parquet
+                      |
+                      v
+         Features (party, TF-IDF)  -->  Model  -->  Prediction (Voor/Tegen)
+    ```
+    """)
+    st.subheader("Temporal Split")
+    st.markdown("""
+    - **Train**: data up to 2021
+    - **Validation**: 2022
+    - **Test**: 2023 and later
+
+    This prevents leakage and simulates real-world deployment.
+    """)
+    st.subheader("Models")
+    st.markdown("""
+    - **Baseline (party only)**: Predicts the majority vote per party. No speech text used.
+    - **Model A (party + TF-IDF)**: One-hot encoded party + TF-IDF of speech text, fed into Logistic Regression.
+    """)
 
 
 def main():
@@ -37,100 +365,19 @@ def main():
 
     page = st.sidebar.radio(
         "Page",
-        ["Overview", "Speech Explorer", "Model Results", "Prediction Demo"],
+        ["Overview", "Speech Explorer", "Model Results", "Prediction Demo", "Methodology"],
     )
 
     if page == "Overview":
-        st.header("Dataset Overview")
-        stats = load_stats()
-        if stats:
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Speech-Vote Pairs", f"{stats['total_pairs']:,}")
-            with col2:
-                st.metric("Unique Speakers", f"{stats['unique_speakers']:,}")
-            with col3:
-                st.metric("Parties", stats["unique_parties"])
-            st.subheader("Vote Distribution")
-            st.bar_chart(stats["vote_dist"])
-        else:
-            st.warning("Run the pipeline first: `python -m src.build_speech_dataset`")
-
+        render_overview()
     elif page == "Speech Explorer":
-        st.header("Speech Explorer")
-        st.info("Browse speeches with their vote outcomes. Filter by party, topic.")
-        analysis = ROOT / "data" / "analysis"
-        if (analysis / "speech_vote_pairs.parquet").exists():
-            import pandas as pd
-            pairs = pd.read_parquet(analysis / "speech_vote_pairs.parquet")
-            if len(pairs) > 100_000:
-                pairs = pairs.sample(5000, random_state=42)
-            party = st.selectbox("Filter by party", ["All"] + sorted(pairs["fractie"].dropna().unique().tolist()))
-            if party != "All":
-                pairs = pairs[pairs["fractie"] == party]
-            n = st.slider("Show", 1, min(50, len(pairs)), 5)
-            for _, row in pairs.head(n).iterrows():
-                with st.expander(f"[{row.get('fractie','?')}] {row.get('achternaam','?')} ({row.get('vote','?')})"):
-                    st.write(row.get("speech_text", "")[:500] + "..." if len(str(row.get("speech_text",""))) > 500 else row.get("speech_text", ""))
-        else:
-            st.warning("No speech_vote_pairs.parquet found.")
-
+        render_speech_explorer()
     elif page == "Model Results":
-        st.header("Model Results")
-        analysis = ROOT / "data" / "analysis"
-        if (analysis / "speech_vote_pairs.parquet").exists():
-            import pandas as pd
-            from src.ml.features import load_pairs, get_train_val_test
-            from src.ml.models import train_baseline_party, predict_baseline_party, train_model_a, predict_model_a, evaluate
-            with st.spinner("Loading and evaluating models..."):
-                df = load_pairs(sample=50000)
-                df = df[df["datum"].notna()]
-                train, val, test = get_train_val_test(df)
-                train = train[train["vote"].isin(["Voor", "Tegen"])]
-                val = val[val["vote"].isin(["Voor", "Tegen"])]
-                if len(train) > 1000 and len(val) > 100:
-                    model_b = train_baseline_party(train)
-                    pred_b = predict_baseline_party(model_b, val)
-                    r_b = evaluate(val["vote"].values, pred_b)
-                    model_a = train_model_a(train, max_features=2000)
-                    pred_a = predict_model_a(model_a, val)
-                    r_a = evaluate(val["vote"].values, pred_a)
-                    st.metric("Baseline (party only)", f"{r_b['accuracy']*100:.1f}% accuracy")
-                    st.metric("Model A (party + TF-IDF)", f"{r_a['accuracy']*100:.1f}% accuracy")
-                    st.dataframe(pd.DataFrame([
-                        {"Model": "Baseline", "Accuracy": r_b["accuracy"], "F1 (macro)": r_b["f1_macro"]},
-                        {"Model": "Model A (TF-IDF)", "Accuracy": r_a["accuracy"], "F1 (macro)": r_a["f1_macro"]},
-                    ]))
-                else:
-                    st.warning("Not enough data with dates for evaluation.")
-        else:
-            st.warning("No speech_vote_pairs.parquet found.")
-
+        render_model_results()
     elif page == "Prediction Demo":
-        st.header("Prediction Demo")
-        st.info("Paste a speech excerpt and select party to get a vote prediction.")
-        analysis = ROOT / "data" / "analysis"
-        if (analysis / "speech_vote_pairs.parquet").exists():
-            import pandas as pd
-            from src.ml.features import load_pairs, get_train_val_test
-            from src.ml.models import train_model_a, predict_model_a
-            text = st.text_area("Speech text (Dutch)", height=150, placeholder="Voorzitter, dit wetsvoorstel...")
-            party = st.selectbox("Party (fractie)", ["VVD", "PVV", "CDA", "D66", "GroenLinks-PvdA", "SP", "FvD", "ChristenUnie", "PvdD", "SGP", "DENK", "JA21", "BBB", "Other"])
-            if st.button("Predict") and text.strip():
-                with st.spinner("Training model and predicting..."):
-                    df = load_pairs(sample=20000)
-                    df = df[df["datum"].notna()]
-                    df = df[df["vote"].isin(["Voor", "Tegen"])]
-                    train, _, _ = get_train_val_test(df)
-                    if len(train) > 1000:
-                        model = train_model_a(train, max_features=2000)
-                        demo_df = pd.DataFrame([{"speech_text": text, "fractie": party}])
-                        pred = predict_model_a(model, demo_df)
-                        st.success(f"Predicted vote: **{pred[0]}**")
-                    else:
-                        st.error("Not enough training data.")
-        else:
-            st.warning("No speech_vote_pairs.parquet found.")
+        render_prediction_demo()
+    elif page == "Methodology":
+        render_methodology()
 
 
 if __name__ == "__main__":

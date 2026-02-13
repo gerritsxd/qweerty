@@ -43,11 +43,11 @@ def main():
     print("  Tweede Kamer Open Data")
     print("=" * 60)
 
-    # ── Step 1: Fetch Verslagen ────────────────────────────────────────
+    # Step 1: Fetch Verslagen
     if not args.skip_fetch and not args.skip_parse and not args.stats:
-        print("\n" + "─" * 60)
+        print("\n" + "-" * 60)
         print("  STEP 1: Fetch Verslag metadata + download XMLs")
-        print("─" * 60)
+        print("-" * 60)
 
         from src.fetch_verslagen import (
             load_config, fetch_verslag_metadata, save_verslag_metadata,
@@ -66,13 +66,13 @@ def main():
         download_verslag_xml(best, config)
     else:
         if not args.stats:
-            print("\n  [Skipping fetch — using existing XML files]")
+            print("\n  [Skipping fetch - using existing XML files]")
 
-    # ── Step 2: Parse XMLs ─────────────────────────────────────────────
+    # Step 2: Parse XMLs
     if not args.skip_parse and not args.stats:
-        print("\n" + "─" * 60)
+        print("\n" + "-" * 60)
         print("  STEP 2: Parse Verslag XMLs into speech records")
-        print("─" * 60)
+        print("-" * 60)
 
         from src.parse_verslagen import parse_all_verslagen, save_speeches
 
@@ -83,31 +83,27 @@ def main():
         save_speeches(df)
     else:
         if not args.stats:
-            print("\n  [Skipping parse — using existing speeches.parquet]")
+            print("\n  [Skipping parse - using existing speeches.parquet]")
 
-    # ── Step 3: Link speeches to votes ─────────────────────────────────
-    print("\n" + "─" * 60)
+    # Step 3: Link speeches to votes
+    print("\n" + "-" * 60)
     if args.stats:
         print("  STATS: Existing dataset")
     else:
         print("  STEP 3: Link speeches to votes")
-    print("─" * 60)
+    print("-" * 60)
 
     from src.link_speech_vote import main as link_main
 
-    # Simulate args for the linker
-    class LinkArgs:
-        stats = args.stats
-        no_split = False
+    # Temporarily replace sys.argv so the linker's argparse doesn't see our args
+    old_argv = sys.argv
+    sys.argv = ["link_speech_vote.py", "--stats"] if args.stats else ["link_speech_vote.py"]
+    try:
+        link_main()
+    finally:
+        sys.argv = old_argv
 
-    # Monkey-patch argparse for the linker
-    import src.link_speech_vote as linker
-    original_main = linker.main
-
-    # Just call the linker's main — it handles everything
-    link_main()
-
-    # ── Summary ────────────────────────────────────────────────────────
+    # Summary
     elapsed = time.time() - start
     print("\n" + "=" * 60)
     print(f"  Pipeline complete! ({elapsed:.0f}s)")

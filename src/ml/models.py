@@ -30,16 +30,20 @@ def train_model_a(
     max_features: int = 5000,
     max_df: float = 0.95,
     min_df: int = 2,
+    ngram_range: tuple[int, int] = (1, 1),
+    use_extra_features: bool = False,
 ) -> Any:
     """
     Model A: Party (one-hot) + TF-IDF of speech -> Logistic Regression.
-    Returns fitted sklearn Pipeline.
+    Optionally adds speech_length and stance keywords.
+    Returns fitted model dict.
     """
-    from sklearn.compose import ColumnTransformer
     from sklearn.feature_extraction.text import TfidfVectorizer
     from sklearn.linear_model import LogisticRegression
-    from sklearn.pipeline import Pipeline
-    from sklearn.preprocessing import OneHotEncoder
+    from sklearn.preprocessing import OneHotEncoder, LabelEncoder
+    from scipy.sparse import hstack
+    from scipy.sparse import csr_matrix
+    import numpy as np
 
     text = _get_text_col(train) if text_col is None else train[text_col].fillna("")
     X_party = train[[fractie_col]].fillna("Onbekend")
@@ -52,18 +56,7 @@ def train_model_a(
     X_party = X_party[valid]
     text = text[valid]
     y = y[valid]
-
-    ct = ColumnTransformer(
-        [
-            ("party", OneHotEncoder(handle_unknown="ignore"), [fractie_col]),
-            ("tfidf", TfidfVectorizer(max_features=max_features, max_df=max_df, min_df=min_df), text_col or "speech_text"),
-        ],
-        remainder="drop",
-    )
-    # We need to pass both; ColumnTransformer with text needs the right column
-    X_combined = pd.DataFrame({"party": X_party[fractie_col], "text": text})
-    # Simpler: use a custom approach - concat party one-hot with tfidf
-    from sklearn.preprocessing import LabelEncoder
+    train_sub = train.loc[valid]
 
     le = LabelEncoder()
     y_enc = le.fit_transform(y.astype(str))
@@ -71,13 +64,33 @@ def train_model_a(
     party_enc = OneHotEncoder(handle_unknown="ignore")
     X_party_enc = party_enc.fit_transform(X_party)
 
-    tfidf = TfidfVectorizer(max_features=max_features, max_df=max_df, min_df=min_df)
+    tfidf = TfidfVectorizer(
+        max_features=max_features,
+        max_df=max_df,
+        min_df=min_df,
+        ngram_range=ngram_range,
+    )
     X_tfidf = tfidf.fit_transform(text.astype(str))
 
-    from scipy.sparse import hstack
-    X = hstack([X_party_enc, X_tfidf])
+    X_list = [X_party_enc, X_tfidf]
 
-    clf = LogisticRegression(max_iter=500, random_state=42, class_weight="balanced")
+    if use_extra_features:
+        # speech_length
+        speech_len = train_sub["speech_text"].fillna("").str.len().values.reshape(-1, 1)
+        # stance keywords
+        try:
+            from src.nlp.preprocess import count_stance_keywords
+            kw = train_sub["speech_text"].fillna("").apply(count_stance_keywords)
+            n_voor = np.array([k[0] for k in kw]).reshape(-1, 1)
+            n_tegen = np.array([k[1] for k in kw]).reshape(-1, 1)
+            extra = np.hstack([speech_len, n_voor, n_tegen])
+        except Exception:
+            extra = speech_len
+        X_list.append(csr_matrix(extra))
+
+    X = hstack(X_list)
+
+    clf = LogisticRegression(max_iter=1000, random_state=42, class_weight="balanced")
     clf.fit(X, y_enc)
 
     return {
@@ -85,17 +98,33 @@ def train_model_a(
         "tfidf": tfidf,
         "clf": clf,
         "label_enc": le,
+        "use_extra_features": use_extra_features,
     }
 
 
 def predict_model_a(model: dict, df: pd.DataFrame, fractie_col: str = "fractie") -> np.ndarray:
     """Predict using Model A."""
-    from scipy.sparse import hstack
+    from scipy.sparse import hstack, csr_matrix
+    import numpy as np
 
     text = _get_text_col(df).astype(str)
     X_party = model["party_enc"].transform(df[[fractie_col]].fillna("Onbekend"))
     X_tfidf = model["tfidf"].transform(text)
-    X = hstack([X_party, X_tfidf])
+    X_list = [X_party, X_tfidf]
+
+    if model.get("use_extra_features"):
+        speech_len = df["speech_text"].fillna("").str.len().values.reshape(-1, 1)
+        try:
+            from src.nlp.preprocess import count_stance_keywords
+            kw = df["speech_text"].fillna("").apply(count_stance_keywords)
+            n_voor = np.array([k[0] for k in kw]).reshape(-1, 1)
+            n_tegen = np.array([k[1] for k in kw]).reshape(-1, 1)
+            extra = np.hstack([speech_len, n_voor, n_tegen])
+        except Exception:
+            extra = speech_len
+        X_list.append(csr_matrix(extra))
+
+    X = hstack(X_list)
     pred_enc = model["clf"].predict(X)
     return model["label_enc"].inverse_transform(pred_enc)
 
