@@ -77,11 +77,60 @@ def main():
 
     elif page == "Model Results":
         st.header("Model Results")
-        st.info("Placeholder: model comparison and accuracy charts will go here.")
+        analysis = ROOT / "data" / "analysis"
+        if (analysis / "speech_vote_pairs.parquet").exists():
+            import pandas as pd
+            from src.ml.features import load_pairs, get_train_val_test
+            from src.ml.models import train_baseline_party, predict_baseline_party, train_model_a, predict_model_a, evaluate
+            with st.spinner("Loading and evaluating models..."):
+                df = load_pairs(sample=50000)
+                df = df[df["datum"].notna()]
+                train, val, test = get_train_val_test(df)
+                train = train[train["vote"].isin(["Voor", "Tegen"])]
+                val = val[val["vote"].isin(["Voor", "Tegen"])]
+                if len(train) > 1000 and len(val) > 100:
+                    model_b = train_baseline_party(train)
+                    pred_b = predict_baseline_party(model_b, val)
+                    r_b = evaluate(val["vote"].values, pred_b)
+                    model_a = train_model_a(train, max_features=2000)
+                    pred_a = predict_model_a(model_a, val)
+                    r_a = evaluate(val["vote"].values, pred_a)
+                    st.metric("Baseline (party only)", f"{r_b['accuracy']*100:.1f}% accuracy")
+                    st.metric("Model A (party + TF-IDF)", f"{r_a['accuracy']*100:.1f}% accuracy")
+                    st.dataframe(pd.DataFrame([
+                        {"Model": "Baseline", "Accuracy": r_b["accuracy"], "F1 (macro)": r_b["f1_macro"]},
+                        {"Model": "Model A (TF-IDF)", "Accuracy": r_a["accuracy"], "F1 (macro)": r_a["f1_macro"]},
+                    ]))
+                else:
+                    st.warning("Not enough data with dates for evaluation.")
+        else:
+            st.warning("No speech_vote_pairs.parquet found.")
 
     elif page == "Prediction Demo":
         st.header("Prediction Demo")
-        st.info("Placeholder: paste a speech, get a vote prediction.")
+        st.info("Paste a speech excerpt and select party to get a vote prediction.")
+        analysis = ROOT / "data" / "analysis"
+        if (analysis / "speech_vote_pairs.parquet").exists():
+            import pandas as pd
+            from src.ml.features import load_pairs, get_train_val_test
+            from src.ml.models import train_model_a, predict_model_a
+            text = st.text_area("Speech text (Dutch)", height=150, placeholder="Voorzitter, dit wetsvoorstel...")
+            party = st.selectbox("Party (fractie)", ["VVD", "PVV", "CDA", "D66", "GroenLinks-PvdA", "SP", "FvD", "ChristenUnie", "PvdD", "SGP", "DENK", "JA21", "BBB", "Other"])
+            if st.button("Predict") and text.strip():
+                with st.spinner("Training model and predicting..."):
+                    df = load_pairs(sample=20000)
+                    df = df[df["datum"].notna()]
+                    df = df[df["vote"].isin(["Voor", "Tegen"])]
+                    train, _, _ = get_train_val_test(df)
+                    if len(train) > 1000:
+                        model = train_model_a(train, max_features=2000)
+                        demo_df = pd.DataFrame([{"speech_text": text, "fractie": party}])
+                        pred = predict_model_a(model, demo_df)
+                        st.success(f"Predicted vote: **{pred[0]}**")
+                    else:
+                        st.error("Not enough training data.")
+        else:
+            st.warning("No speech_vote_pairs.parquet found.")
 
 
 if __name__ == "__main__":
