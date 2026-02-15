@@ -23,12 +23,17 @@ Usage:
 
 import argparse
 import logging
+import re
+from datetime import timedelta
 from pathlib import Path
 
 import pandas as pd
 from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
+
+# Dutch stopwords for topic matching (minimal set)
+_STOP = {"de", "het", "een", "van", "en", "in", "op", "te", "voor", "met", "dat", "die", "dit", "is", "zijn", "worden", "om", "aan", "bij", "als", "naar", "over", "uit", "tot", "door"}
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = ROOT / "data" / "processed"
@@ -81,8 +86,8 @@ def build_vote_lookups(
     besluit_ids_with_votes = set(stemming["Besluit_Id"].dropna().unique())
     besluit_voted = besluit[besluit["Id"].isin(besluit_ids_with_votes)].copy()
 
-    # Agendapunt → Besluit (only voted ones)
-    ap_besluit = agendapunt[["Id", "Activiteit_Id"]].merge(
+    # Agendapunt → Besluit (only voted ones), include Onderwerp for topic matching
+    ap_besluit = agendapunt[["Id", "Activiteit_Id", "Onderwerp"]].merge(
         besluit_voted[["Id", "Agendapunt_Id", "BesluitSoort", "BesluitTekst", "StemmingsSoort"]],
         left_on="Id",
         right_on="Agendapunt_Id",
@@ -101,9 +106,16 @@ def build_vote_lookups(
     print(f"  Total voted Besluiten: {len(besluit_voted):,}")
 
     # ── Build flat vote DataFrame ──────────────────────────────────────
-    # Stemming with Besluit context
+    # Stemming with Besluit + Agendapunt context (Onderwerp for topic matching)
+    besluit_with_ap = besluit_voted.merge(
+        agendapunt[["Id", "Onderwerp"]],
+        left_on="Agendapunt_Id",
+        right_on="Id",
+        how="left",
+        suffixes=("", "_ap"),
+    )
     vote_df = stemming.merge(
-        besluit_voted[["Id", "Agendapunt_Id", "BesluitSoort", "BesluitTekst", "StemmingsSoort"]],
+        besluit_with_ap[["Id", "Agendapunt_Id", "BesluitSoort", "BesluitTekst", "StemmingsSoort", "Onderwerp"]],
         left_on="Besluit_Id",
         right_on="Id",
         how="inner",
@@ -113,6 +125,31 @@ def build_vote_lookups(
     print(f"  Total vote records (with Besluit context): {len(vote_df):,}")
 
     return act_to_besluit, {}, vote_df
+
+
+# ---------------------------------------------------------------------------
+# Topic matching
+# ---------------------------------------------------------------------------
+
+def _tokenize_topic(text: str) -> set:
+    """Extract meaningful words from topic text for matching."""
+    if not text or not isinstance(text, str):
+        return set()
+    text = text.lower()
+    words = re.findall(r"\b[a-z]{3,}\b", text)
+    return {w for w in words if w not in _STOP}
+
+
+def _topic_overlap(speech_topic: str, besluit_tekst: str, min_shared: int = 1) -> bool:
+    """
+    Check if speech topic and vote (besluit) text have meaningful overlap.
+    Returns True if at least min_shared words overlap.
+    """
+    t1 = _tokenize_topic(str(speech_topic or ""))
+    t2 = _tokenize_topic(str(besluit_tekst or ""))
+    if not t1 or not t2:
+        return False
+    return len(t1 & t2) >= min_shared
 
 
 # ---------------------------------------------------------------------------
@@ -205,6 +242,7 @@ def link_speeches_to_votes(
             "StemmingsSoort": row.get("StemmingsSoort"),
             "BesluitSoort": row.get("BesluitSoort"),
             "BesluitTekst": row.get("BesluitTekst"),
+            "Agendapunt_Onderwerp": row.get("Onderwerp"),  # actual topic for matching
         }
         if pid and pd.notna(pid):
             individual_votes[(bid, pid)] = vote_info
@@ -225,6 +263,13 @@ def link_speeches_to_votes(
         & (speeches_dated["speech_text_clean"].str.len() > 50)
     ].copy()
 
+    # Speech position: 0=first in debate, 1=last (approximated from order within activiteit)
+    act_sizes = substantive.groupby("activiteit_id").size()
+    substantive["_act_idx"] = substantive.groupby("activiteit_id").cumcount()
+    substantive["_act_total"] = substantive["activiteit_id"].map(act_sizes)
+    substantive["speech_position"] = substantive["_act_idx"] / substantive["_act_total"].clip(lower=1)
+    substantive = substantive.drop(columns=["_act_idx", "_act_total"])
+
     print(f"    Substantive speeches (not chair, not interruptions, >50 chars): {len(substantive):,}")
 
     # ── Strategy 1 linking ──────────────────────────────────────────────
@@ -243,7 +288,7 @@ def link_speeches_to_votes(
                 individual_votes, faction_votes, faction_votes_lower,
             )
             if vote is not None:
-                pairs.append(make_pair(speech, vote))
+                pairs.append(make_pair(speech, vote, link_quality=1))
 
     s1_count = len(pairs)
     print(f"    Strategy 1 pairs: {s1_count:,}")
@@ -274,9 +319,11 @@ def link_speeches_to_votes(
             speaker_fractie = speech.get("fractie")
             speaker_pid = speech.get("persoon_id")
 
-            # Look for Stemmingen on the same date (or +1 day for evening votes)
+            # Look for Stemmingen on same date or +1 day (debates often day before votes)
             matched_besluit_ids = []
-            for d in [vd]:  # Could add vd + timedelta(days=1)
+            for d in [vd, vd + timedelta(days=1) if vd else None]:
+                if d is None:
+                    continue
                 for stem_act_id in date_to_stem_acts.get(d, []):
                     matched_besluit_ids.extend(act_to_besluit.get(stem_act_id, []))
 
@@ -286,19 +333,35 @@ def link_speeches_to_votes(
                     individual_votes, faction_votes, faction_votes_lower,
                 )
                 if vote is not None:
-                    pairs.append(make_pair(speech, vote))
+                    # Topic filter: compare speech topic to Agendapunt.Onderwerp (actual topic)
+                    # BesluitTekst is usually just "Aangenomen." with no topic info
+                    speech_topic = " ".join(
+                        filter(None, [
+                            str(speech.get("activiteit_onderwerp") or ""),
+                            str(speech.get("activiteithoofd_onderwerp") or ""),
+                        ])
+                    )
+                    ap_onderwerp = str(vote.get("Agendapunt_Onderwerp") or vote.get("BesluitTekst") or "")
+                    if _topic_overlap(speech_topic, ap_onderwerp, min_shared=2):
+                        pairs.append(make_pair(speech, vote, link_quality=3))
 
         s2_count = len(pairs) - s1_count
         print(f"    Strategy 2 pairs: {s2_count:,}")
     else:
         print("    Skipping Strategy 2 (no Datum column in Activiteit)")
 
-    print(f"\n  Total speech-vote pairs: {len(pairs):,}")
+    print(f"\n  Total speech-vote pairs (before dedup): {len(pairs):,}")
 
     if not pairs:
         return pd.DataFrame()
 
     result = pd.DataFrame(pairs)
+
+    # Deduplicate: keep longest speech per (persoon_id, besluit_id)
+    result = result.sort_values("speech_length", ascending=False)
+    result = result.drop_duplicates(subset=["persoon_id", "besluit_id"], keep="first")
+    print(f"  After deduplication: {len(result):,} pairs")
+
     return result
 
 
@@ -359,9 +422,11 @@ def find_speaker_vote(
     return None
 
 
-def make_pair(speech: pd.Series, vote: dict) -> dict:
-    """Combine a speech record and vote record into one pair."""
-    return {
+def make_pair(speech: pd.Series, vote: dict, link_quality: int = 0) -> dict:
+    """Combine a speech record and vote record into one pair.
+    link_quality: 1=activiteit, 2=zaak, 3=topic-filtered-date
+    """
+    pair = {
         # Speech info
         "vergadering_id": speech.get("vergadering_id"),
         "vergaderjaar": speech.get("vergaderjaar"),
@@ -380,17 +445,21 @@ def make_pair(speech: pd.Series, vote: dict) -> dict:
         # Speech text
         "speech_text": speech.get("speech_text_clean", speech.get("speech_text")),
         "speech_length": len(speech.get("speech_text_clean", speech.get("speech_text", ""))),
+        "speech_position": speech.get("speech_position", 0.5),  # 0=first, 1=last in debate
         # Vote info
         "besluit_id": vote.get("Besluit_Id"),
         "stemmings_soort": vote.get("StemmingsSoort"),
         "besluit_soort": vote.get("BesluitSoort"),
         "besluit_tekst": vote.get("BesluitTekst"),
+        "agendapunt_onderwerp": vote.get("Agendapunt_Onderwerp"),
         # The target variable
         "vote": vote.get("Soort"),  # "Voor", "Tegen", "Niet deelgenomen"
         "vote_fractie_grootte": vote.get("FractieGrootte"),
         "vote_is_individual": pd.notna(vote.get("Persoon_Id")),
         "vote_vergissing": vote.get("Vergissing"),
+        "link_quality": link_quality,
     }
+    return pair
 
 
 # ---------------------------------------------------------------------------
@@ -409,9 +478,9 @@ def split_dataset(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.Data
     val = df[df["year"] == 2022]
     test = df[df["year"] >= 2023]
 
-    print(f"  Train (≤2021):   {len(train):,} pairs")
+    print(f"  Train (<=2021):  {len(train):,} pairs")
     print(f"  Val (2022):      {len(val):,} pairs")
-    print(f"  Test (≥2023):    {len(test):,} pairs")
+    print(f"  Test (>=2023):   {len(test):,} pairs")
 
     # Drop the temp column
     train = train.drop(columns=["year"])

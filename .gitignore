@@ -127,6 +127,16 @@ credentials.json
 # Generated dashboard image
 dashboard.png
 
+# Trained models (large binary weights, re-trainable)
+models/
+*.pt
+*.bin
+*.safetensors
+*.onnx
+
+# Outputs — keep reports, ignore large intermediates
+outputs/*.pkl
+
 # Verslag transcript XMLs (large, re-downloadable)
 data/texts/*
 !data/texts/.gitkeep

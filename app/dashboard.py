@@ -156,34 +156,77 @@ def render_model_results():
         return
 
     import pandas as pd
-    from src.ml.features import load_pairs, get_train_val_test
-    from src.ml.models import train_baseline_party, predict_baseline_party, train_model_a, predict_model_a, evaluate
+    from src.ml.features import load_pairs, get_train_val_test, build_basic_features, add_enhanced_features
+    from src.ml.models import (
+        train_baseline_party, predict_baseline_party,
+        train_model_a, predict_model_a,
+        train_model_gb, train_model_rf, train_model_xgb,
+        train_ensemble_two_stage, predict_ensemble_two_stage,
+        load_model_robbert, predict_model_robbert,
+        evaluate,
+    )
     from sklearn.metrics import confusion_matrix
     import matplotlib.pyplot as plt
     import seaborn as sns
 
+    MODEL_KW = dict(
+        max_features=2000, ngram_range=(1, 1), min_df=1,
+        use_besluit_tfidf=True, use_speech_position=True, use_speaker_loyalty=True,
+        use_kabinetsappreciatie=True, use_zaak_soort=True, use_is_coalition=True,
+    )
+
     @st.cache_resource
     def train_and_evaluate():
-        from src.ml.features import build_basic_features
         df = load_pairs(sample=50000)
         df = df[df["datum"].notna()]
         df = build_basic_features(df)
         train, val, test = get_train_val_test(df)
         train = train[train["vote"].isin(["Voor", "Tegen"])]
         val = val[val["vote"].isin(["Voor", "Tegen"])]
-        if len(train) < 1000 or len(val) < 100:
+        train, val, test = add_enhanced_features(train, val, test)
+        if len(train) < 100 or len(val) < 20:
             return None
         model_b = train_baseline_party(train)
         pred_b = predict_baseline_party(model_b, val)
         r_b = evaluate(val["vote"].values, pred_b)
-        model_a = train_model_a(
-            train, max_features=5000, ngram_range=(1, 2), use_extra_features=True
-        )
+        model_a = train_model_a(train, **MODEL_KW)
         pred_a = predict_model_a(model_a, val)
         r_a = evaluate(val["vote"].values, pred_a)
+        model_gb = train_model_gb(train, **MODEL_KW)
+        pred_gb = predict_model_a(model_gb, val)
+        r_gb = evaluate(val["vote"].values, pred_gb)
+        model_rf = train_model_rf(train, **MODEL_KW)
+        pred_rf = predict_model_a(model_rf, val)
+        r_rf = evaluate(val["vote"].values, pred_rf)
+        try:
+            model_xgb = train_model_xgb(train, **MODEL_KW)
+            pred_xgb = predict_model_a(model_xgb, val)
+            r_xgb = evaluate(val["vote"].values, pred_xgb)
+        except Exception:
+            model_xgb = pred_xgb = r_xgb = None
+        try:
+            model_ens = train_ensemble_two_stage(train, confidence_threshold=0.7, **MODEL_KW)
+            pred_ens = predict_ensemble_two_stage(model_ens, val)
+            r_ens = evaluate(val["vote"].values, pred_ens)
+        except Exception:
+            model_ens = pred_ens = r_ens = None
+        model_robbert = pred_robbert = r_robbert = None
+        try:
+            robbert_path = ROOT / "models" / "robbert_vote_classifier"
+            if (robbert_path / "config.json").exists():
+                model_robbert = load_model_robbert(str(robbert_path))
+                pred_robbert = predict_model_robbert(model_robbert, val)
+                r_robbert = evaluate(val["vote"].values, pred_robbert)
+        except Exception:
+            pass
         return {
             "model_b": model_b, "pred_b": pred_b, "r_b": r_b,
             "model_a": model_a, "pred_a": pred_a, "r_a": r_a,
+            "model_gb": model_gb, "pred_gb": pred_gb, "r_gb": r_gb,
+            "model_rf": model_rf, "pred_rf": pred_rf, "r_rf": r_rf,
+            "model_xgb": model_xgb, "pred_xgb": pred_xgb, "r_xgb": r_xgb,
+            "model_ens": model_ens, "pred_ens": pred_ens, "r_ens": r_ens,
+            "model_robbert": model_robbert, "pred_robbert": pred_robbert, "r_robbert": r_robbert,
             "val": val, "train": train,
         }
     result = train_and_evaluate()
@@ -192,50 +235,56 @@ def render_model_results():
         return
 
     r_b, r_a = result["r_b"], result["r_a"]
+    r_gb, r_rf = result["r_gb"], result["r_rf"]
+    r_xgb, r_ens = result.get("r_xgb"), result.get("r_ens")
+    r_robbert = result.get("r_robbert")
     val = result["val"]
 
-    # Key takeaway
+    models_list = [("Baseline", r_b), ("Model A", r_a), ("GradientBoosting", r_gb), ("RandomForest", r_rf)]
+    if r_xgb:
+        models_list.append(("XGBoost", r_xgb))
+    if r_ens:
+        models_list.append(("Ensemble", r_ens))
+    if r_robbert:
+        models_list.append(("RobBERT", r_robbert))
+    best = max(models_list, key=lambda x: x[1]["accuracy"])
     st.info(
-        f"**Party identity alone** predicts **{r_b['accuracy']*100:.1f}%** of votes. "
-        f"Adding speech text (TF-IDF) gives **{r_a['accuracy']*100:.1f}%**."
+        f"**Party identity alone** predicts **{r_b['accuracy']*100:.1f}%**. "
+        f"Best model: **{best[0]}** at **{best[1]['accuracy']*100:.1f}%** accuracy."
     )
 
     # Accuracy bar chart
     st.subheader("Model Comparison")
-    comp_df = pd.DataFrame({
-        "Model": ["Baseline (party only)", "Model A (party + TF-IDF)"],
-        "Accuracy": [r_b["accuracy"], r_a["accuracy"]],
-        "F1 (macro)": [r_b["f1_macro"], r_a["f1_macro"]],
-    })
-    col1, col2 = st.columns(2)
-    with col1:
-        st.metric("Baseline (party only)", f"{r_b['accuracy']*100:.1f}%", f"F1: {r_b['f1_macro']:.3f}")
-    with col2:
-        st.metric("Model A (party + TF-IDF)", f"{r_a['accuracy']*100:.1f}%", f"F1: {r_a['f1_macro']:.3f}")
+    comp_data = {"Model": [m[0] for m in models_list], "Accuracy": [m[1]["accuracy"] for m in models_list], "F1 (macro)": [m[1]["f1_macro"] for m in models_list]}
+    comp_df = pd.DataFrame(comp_data)
+    n_cols = len(models_list)
+    cols = st.columns(min(n_cols, 6))
+    for i, (name, r) in enumerate(models_list[:6]):
+        with cols[i]:
+            st.metric(name, f"{r['accuracy']*100:.1f}%", f"F1: {r['f1_macro']:.3f}")
     st.bar_chart(comp_df.set_index("Model")[["Accuracy", "F1 (macro)"]])
 
     # Confusion matrices
     st.subheader("Confusion Matrices")
-    col1, col2 = st.columns(2)
     classes = ["Voor", "Tegen"]
-    with col1:
-        cm_b = confusion_matrix(val["vote"], result["pred_b"], labels=classes)
-        fig, ax = plt.subplots(figsize=(4, 3))
-        sns.heatmap(cm_b, annot=True, fmt="d", xticklabels=classes, yticklabels=classes, ax=ax, cmap="Blues")
-        ax.set_title("Baseline")
-        ax.set_ylabel("True")
-        ax.set_xlabel("Predicted")
-        st.pyplot(fig)
-        plt.close()
-    with col2:
-        cm_a = confusion_matrix(val["vote"], result["pred_a"], labels=classes)
-        fig, ax = plt.subplots(figsize=(4, 3))
-        sns.heatmap(cm_a, annot=True, fmt="d", xticklabels=classes, yticklabels=classes, ax=ax, cmap="Blues")
-        ax.set_title("Model A")
-        ax.set_ylabel("True")
-        ax.set_xlabel("Predicted")
-        st.pyplot(fig)
-        plt.close()
+    preds_list = [("Baseline", result["pred_b"]), ("Model A", result["pred_a"]), ("GradientBoosting", result["pred_gb"]), ("RandomForest", result["pred_rf"])]
+    if result.get("pred_xgb") is not None:
+        preds_list.append(("XGBoost", result["pred_xgb"]))
+    if result.get("pred_ens") is not None:
+        preds_list.append(("Ensemble", result["pred_ens"]))
+    if result.get("pred_robbert") is not None:
+        preds_list.append(("RobBERT", result["pred_robbert"]))
+    pred_cols = st.columns(min(len(preds_list), 6))
+    for i, (label, pred) in enumerate(preds_list[:6]):
+        with pred_cols[i]:
+            cm = confusion_matrix(val["vote"], pred, labels=classes)
+            fig, ax = plt.subplots(figsize=(3, 2.5))
+            sns.heatmap(cm, annot=True, fmt="d", xticklabels=classes, yticklabels=classes, ax=ax, cmap="Blues")
+            ax.set_title(label)
+            ax.set_ylabel("True")
+            ax.set_xlabel("Predicted")
+            st.pyplot(fig)
+            plt.close()
 
     # Per-party accuracy
     st.subheader("Per-Party Accuracy (Baseline)")
@@ -260,26 +309,41 @@ def render_prediction_demo():
 
     import pandas as pd
     from src.ml.features import load_pairs, get_train_val_test
-    from src.ml.models import train_model_a, predict_model_a
+    from src.ml.models import train_model_a, predict_model_a, load_model_robbert, predict_model_robbert, predict_proba_model_robbert
 
     @st.cache_resource
     def get_model():
-        from src.ml.features import build_basic_features
+        robbert_path = ROOT / "models" / "robbert_vote_classifier"
+        if (robbert_path / "config.json").exists():
+            try:
+                return (load_model_robbert(str(robbert_path)), "robbert")
+            except Exception:
+                pass
+        from src.ml.features import build_basic_features, add_enhanced_features
         df = load_pairs(sample=20000)
         df = df[df["datum"].notna()]
         df = df[df["vote"].isin(["Voor", "Tegen"])]
         df = build_basic_features(df)
-        train, _, _ = get_train_val_test(df)
-        if len(train) < 1000:
+        train, val, test = get_train_val_test(df)
+        train, val, test = add_enhanced_features(train, val, test)
+        if len(train) < 100:
             return None
-        return train_model_a(
-            train, max_features=5000, ngram_range=(1, 2), use_extra_features=True
-        )
+        return (train_model_a(
+            train, max_features=2000, ngram_range=(1, 1), min_df=1,
+            use_besluit_tfidf=True, use_speech_position=True, use_speaker_loyalty=True,
+            use_kabinetsappreciatie=True, use_zaak_soort=True, use_is_coalition=True,
+        ), "model_a")
 
-    model = get_model()
+    model_tuple = get_model()
+    if model_tuple is None:
+        model, model_type = None, None
+    else:
+        model, model_type = model_tuple
     if model is None:
         st.error("Not enough training data.")
         return
+
+    st.caption(f"Using: **{model_type}**" + (" (run `python scripts/train_robbert.py` for RobBERT)" if model_type != "robbert" else ""))
 
     # Example snippets
     examples = [
@@ -299,29 +363,33 @@ def render_prediction_demo():
     party = st.selectbox("Party (fractie)", ["VVD", "PVV", "CDA", "D66", "GroenLinks-PvdA", "SP", "FvD", "ChristenUnie", "PvdD", "SGP", "DENK", "JA21", "BBB", "Other"])
 
     if st.button("Predict") and text.strip():
-        demo_df = pd.DataFrame([{"speech_text": text, "fractie": party}])
-        pred = predict_model_a(model, demo_df)
-        # Get probability from logistic regression
-        text_col = model["tfidf"].transform(demo_df["speech_text"].fillna(""))
-        party_enc = model["party_enc"].transform(demo_df[["fractie"]].fillna("Other"))
-        from scipy.sparse import hstack
-        X = hstack([party_enc, text_col])
-        proba = model["clf"].predict_proba(X)[0]
-        classes = model["label_enc"].classes_
-        conf = dict(zip(classes, proba))
+        demo_df = pd.DataFrame([{
+            "speech_text": text, "fractie": party,
+            "besluit_tekst": "", "speech_position": 0.5, "speaker_loyalty": 0.5,
+            "kabinetsappreciatie": "Onbekend", "zaak_soort": "Onbekend", "is_coalition": 0,
+            "agendapunt_onderwerp": "",
+        }])
+        if model_type == "robbert":
+            pred = predict_model_robbert(model, demo_df)
+            conf = predict_proba_model_robbert(model, demo_df)
+        else:
+            from src.ml.models import predict_proba_model_a
+            pred = predict_model_a(model, demo_df)
+            conf = predict_proba_model_a(model, demo_df)
         st.success(f"Predicted vote: **{pred[0]}**")
         st.caption(f"Confidence: Voor {conf.get('Voor', 0):.0%}, Tegen {conf.get('Tegen', 0):.0%}")
 
-        # Top TF-IDF terms
+        # Top TF-IDF terms (Model A only)
         try:
-            coef = model["clf"].coef_[0]
-            tfidf_names = model["tfidf"].get_feature_names_out()
-            n_party = len(model["party_enc"].get_feature_names_out())
-            tfidf_coef = coef[n_party:]
-            if len(tfidf_coef) == len(tfidf_names):
-                top_idx = tfidf_coef.argsort()[-5:][::-1]
-                top_terms = [tfidf_names[i] for i in top_idx]
-                st.caption(f"Top terms: {', '.join(top_terms)}")
+            if model_type != "robbert" and "clf" in model:
+                coef = model["clf"].coef_[0]
+                tfidf_names = model["tfidf"].get_feature_names_out()
+                n_party = len(model["party_enc"].get_feature_names_out())
+                tfidf_coef = coef[n_party:]
+                if len(tfidf_coef) == len(tfidf_names):
+                    top_idx = tfidf_coef.argsort()[-5:][::-1]
+                    top_terms = [tfidf_names[i] for i in top_idx]
+                    st.caption(f"Top terms: {', '.join(top_terms)}")
         except Exception:
             pass
 
@@ -354,7 +422,10 @@ def render_methodology():
     st.subheader("Models")
     st.markdown("""
     - **Baseline (party only)**: Predicts the majority vote per party. No speech text used.
-    - **Model A (party + TF-IDF)**: One-hot encoded party + TF-IDF of speech text, fed into Logistic Regression.
+    - **Model A (LogReg)**: Party + TF-IDF of speech + Kabinetsappreciatie + Zaak.Soort + speech position + speaker loyalty + coalition flag.
+    - **GradientBoosting / RandomForest / XGBoost**: Same features, different classifiers.
+    - **Ensemble (two-stage)**: Party baseline + speech-based override only when confidence ≥ threshold (speech can help, never hurt).
+    - **RobBERT**: Fine-tuned Dutch transformer (DTAI-KULeuven/robbert-2023-dutch-base). Train with `python scripts/train_robbert.py`.
     """)
 
 

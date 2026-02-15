@@ -1,0 +1,64 @@
+Overnight Training Report — 2026-02-15
+============================================================
+
+Pipeline: topic clustering -> historical features -> structural model -> RobBERT v2 -> ensemble
+Data: train=92,919 val=12,414 test=48,021
+
+RobBERT v2 Training:
+  Epochs: 7/15 (early stopped, patience=4)
+  Best epoch: 3 (val_acc=74.0%, f1=0.729)
+  Unfreezing: 0 layers (epoch 1-2) -> 2 layers (epoch 3-4) -> 4 layers (epoch 5) -> 6 layers (epoch 7)
+
+============================================================
+FINAL RESULTS (with epoch 5 checkpoint — best available)
+============================================================
+Model                        Val Acc   Test Acc    Test F1
+-------------------------------------------------------
+baseline                       62.9%      60.7%     0.469
+structural                     60.4%      53.3%     0.517
+robbert                        71.6%      70.0%     0.696
+ensemble                       74.0%      71.9%     0.711
+-------------------------------------------------------
+Best model: ensemble
+
+Test classification report:
+              precision    recall  f1-score   support
+
+       Tegen      0.633     0.691     0.661     19007
+        Voor      0.785     0.738     0.761     29014
+
+    accuracy                          0.719     48021
+   macro avg      0.709     0.715     0.711     48021
+weighted avg      0.725     0.719     0.721     48021
+
+Confusion matrix (Tegen, Voor):
+[[13137  5870]
+ [ 7602 21412]]
+
+Per-party test accuracy (>=5 samples):
+  VVD                        87.3% ( 4580) |#################
+  GroenLinks-PvdA            62.3% ( 4275) |############
+  D66                        72.9% ( 4048) |##############
+  SP                         71.5% ( 3891) |##############
+  NSC                        87.5% ( 3813) |#################
+  BBB                        73.6% ( 3385) |##############
+  SGP                        76.2% ( 3198) |###############
+  CDA                        82.9% ( 3183) |################
+  ChristenUnie               77.5% ( 3180) |###############
+  PVV                        51.4% ( 2992) |##########
+  PvdD                       64.7% ( 2463) |############
+  DENK                       66.5% ( 2387) |#############
+  FVD                        51.1% ( 1920) |##########
+  Volt                       66.3% ( 1568) |#############
+  JA21                       67.6% ( 1460) |#############
+  GroenLinks                 74.0% (  492) |##############
+  PvdA                       59.6% (  443) |###########
+  Groep Van Haga             56.1% (  360) |###########
+  Groep Markuszower          57.0% (  151) |###########
+  BIJ1                       57.3% (  117) |###########
+============================================================
+
+Notes:
+- Bug found & fixed: train_model_robbert now returns the best model (not final epoch)
+- The epoch 3 best checkpoint (74.0% val) was overwritten; used epoch 5 (71.6% val) for final eval
+- Next training run will benefit from the bug fix, expected improvement of ~2-4pp
