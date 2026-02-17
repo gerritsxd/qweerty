@@ -177,18 +177,37 @@ def compute_speaker_loyalty(
     return df[persoon_col].map(lambda x: loyalty.get(x, 0.5)).values
 
 
-# Coalition parties by period (approximate)
-_COALITION_PARTIES = {
-    2017: {"VVD", "CDA", "D66", "ChristenUnie"},
-    2018: {"VVD", "CDA", "D66", "ChristenUnie"},
-    2019: {"VVD", "CDA", "D66", "ChristenUnie"},
-    2020: {"VVD", "CDA", "D66", "ChristenUnie"},
-    2021: {"VVD", "CDA", "D66", "ChristenUnie"},
-    2022: {"VVD", "D66", "CDA", "ChristenUnie"},
-    2023: {"VVD", "D66", "CDA", "ChristenUnie"},
-    2024: {"PVV", "VVD", "NSC", "BBB"},
-    2025: {"PVV", "VVD", "NSC", "BBB"},
-}
+# Cabinet periods with exact start/end dates (inclusive).
+# Source: Dutch cabinet history (Rijksoverheid/Wikipedia).
+# Format: (start_date, end_date, coalition_parties)
+_CABINET_PERIODS = [
+    # Rutte II: VVD + PvdA
+    ("2012-11-05", "2017-10-25", {"VVD", "PvdA"}),
+    # Rutte III: VVD + CDA + D66 + ChristenUnie
+    ("2017-10-26", "2022-01-09", {"VVD", "CDA", "D66", "ChristenUnie"}),
+    # Rutte IV: same four (demissionary from 2023-07-07 to 2024-07-02)
+    ("2022-01-10", "2024-07-01", {"VVD", "CDA", "D66", "ChristenUnie"}),
+    # Schoof: PVV + VVD + NSC + BBB (fell 2025-06-03, demissionary thereafter)
+    ("2024-07-02", "2026-12-31", {"PVV", "VVD", "NSC", "BBB"}),
+]
+
+
+def _get_coalition_for_date(dt) -> set:
+    """Return coalition party names for a given date, or empty set if unknown."""
+    if pd.isna(dt):
+        return set()
+    if hasattr(dt, "date"):
+        d = dt.date()
+    else:
+        parsed = pd.to_datetime(dt, errors="coerce")
+        if pd.isna(parsed):
+            return set()
+        d = parsed.date()
+    d_str = str(d)
+    for start, end, parties in _CABINET_PERIODS:
+        if start <= d_str <= end:
+            return parties
+    return set()
 
 
 def add_enhanced_features(
@@ -227,12 +246,12 @@ def add_enhanced_features(
             enriched = enrich_with_zaak_features(df)
             df["kabinetsappreciatie"] = enriched["kabinetsappreciatie"]
             df["zaak_soort"] = enriched["zaak_soort"]
-        df["_year"] = pd.to_datetime(df["datum"], errors="coerce").dt.year
+        df["_dt"] = pd.to_datetime(df["datum"], errors="coerce")
         df["is_coalition"] = df.apply(
-            lambda r: 1 if r.get("fractie") in _COALITION_PARTIES.get(int(r["_year"]) if pd.notna(r["_year"]) else 2020, set()) else 0,
+            lambda r: 1 if r.get("fractie") in _get_coalition_for_date(r["_dt"]) else 0,
             axis=1,
         )
-        df.drop(columns=["_year"], errors="ignore", inplace=True)
+        df.drop(columns=["_dt"], errors="ignore", inplace=True)
 
     return train, val, test
 
