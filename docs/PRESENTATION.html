@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Predicting Parliamentary Votes from Debate Speeches</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --accent: #3b82f6;
+      --accent2: #10b981;
+      --accent3: #f59e0b;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      margin: 0;
+      padding: 2rem;
+      line-height: 1.6;
+    }
+    .slide {
+      max-width: 900px;
+      margin: 0 auto 4rem;
+      padding: 2rem;
+      background: var(--card);
+      border-radius: 12px;
+      border-left: 4px solid var(--accent);
+    }
+    h1 { font-size: 2rem; margin: 0 0 0.5rem; }
+    h2 { font-size: 1.35rem; margin: 0 0 1rem; color: var(--accent); }
+    h3 { font-size: 1.1rem; margin: 1rem 0 0.5rem; }
+    p { margin: 0.5rem 0; }
+    ul { margin: 0.5rem 0; padding-left: 1.5rem; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1rem 0;
+      font-size: 0.95rem;
+    }
+    th, td { padding: 0.5rem 0.75rem; text-align: left; border-bottom: 1px solid #334155; }
+    th { color: var(--accent); font-weight: 600; }
+    .subtitle { color: var(--muted); font-size: 1rem; margin-bottom: 2rem; }
+    .highlight { color: var(--accent2); font-weight: 600; }
+    .bar { background: linear-gradient(90deg, var(--accent), var(--accent2)); height: 24px; border-radius: 4px; }
+    .bar-wrap { display: flex; align-items: center; gap: 1rem; margin: 0.5rem 0; }
+    .bar-label { min-width: 180px; font-size: 0.9rem; }
+    .bar-val { min-width: 50px; color: var(--accent2); font-weight: 600; }
+    pre, code {
+      background: #0f172a;
+      padding: 0.2rem 0.4rem;
+      border-radius: 4px;
+      font-size: 0.9rem;
+      overflow-x: auto;
+    }
+    pre { padding: 1rem; margin: 1rem 0; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+    @media (max-width: 600px) { .grid2 { grid-template-columns: 1fr; } }
+    .stat { font-size: 2rem; font-weight: 700; color: var(--accent2); }
+    .toc { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 2rem; }
+    .toc a {
+      background: var(--card);
+      color: var(--accent);
+      padding: 0.5rem 1rem;
+      border-radius: 6px;
+      text-decoration: none;
+      font-size: 0.9rem;
+    }
+    .toc a:hover { background: #334155; }
+    .diagram { font-family: monospace; font-size: 0.85rem; line-height: 1.4; overflow-x: auto; }
+    .flow-row { display: flex; align-items: center; gap: 0.5rem; margin: 0.5rem 0; flex-wrap: wrap; }
+    .flow-box { background: #0f172a; padding: 0.5rem 0.75rem; border-radius: 6px; border: 1px solid #334155; }
+    .flow-arrow { color: var(--accent); font-size: 1.2rem; }
+    .er-box { display: inline-block; background: #0f172a; padding: 0.5rem 1rem; margin: 0.25rem; border-radius: 6px; border: 1px solid #334155; }
+    .er-arrow { color: var(--accent2); font-size: 0.9rem; }
+    .data-table { font-size: 0.85rem; }
+    .data-table td { padding: 0.35rem 0.5rem; }
+    .source { color: var(--accent3); }
+  </style>
+</head>
+<body>
+
+  <div class="slide">
+    <h1>Predicting Parliamentary Votes from Debate Speeches</h1>
+    <p class="subtitle">Can we predict how a Dutch MP will vote based on what they say in debate?</p>
+    <p><strong>Tweede Kamer Open Data</strong> — Team Project — February 2026</p>
+  </div>
+
+  <div class="slide">
+    <h2>The Research Question</h2>
+    <p>The Dutch parliament publishes full debate transcripts and individual votes.</p>
+    <ul>
+      <li><strong>If speech predicts votes</strong> → MPs reveal intent through language; debate is substantive</li>
+      <li><strong>If not</strong> → Voting is purely party-line; deliberation doesn't matter</li>
+    </ul>
+    <p><span class="highlight">Data:</span> 153,000 speech–vote pairs from the Tweede Kamer Open Data API</p>
+  </div>
+
+  <div class="slide">
+    <h2>Data Pipeline — Overview</h2>
+    <div class="flow-row">
+      <span class="flow-box">OData API</span>
+      <span class="flow-arrow">→</span>
+      <span class="flow-box">Stemming, Besluit, Agendapunt, Activiteit</span>
+    </div>
+    <div class="flow-row">
+      <span class="flow-box">Verslag XML</span>
+      <span class="flow-arrow">→</span>
+      <span class="flow-box">Parse speeches (speaker, party, text)</span>
+    </div>
+    <div class="flow-row">
+      <span class="flow-box">LINK by date</span>
+      <span class="flow-arrow">→</span>
+      <span class="flow-box">speech_vote_pairs.parquet</span>
+    </div>
+    <div class="flow-row">
+      <span class="flow-box">Temporal split</span>
+      <span class="flow-arrow">→</span>
+      <span class="flow-box">Train ≤2021</span>
+      <span class="flow-box">Val 2022</span>
+      <span class="flow-box">Test ≥2023</span>
+    </div>
+    <p><em>We test on future votes the model has never seen.</em></p>
+  </div>
+
+  <div class="slide">
+    <h2>Database Model — Entity Relationships</h2>
+    <p>Core tables used for speech-to-vote linking (arrows = foreign keys):</p>
+    <div class="diagram" style="margin: 1.5rem 0;">
+      <div class="flow-row">
+        <span class="er-box">Vergadering</span>
+        <span class="er-arrow">→</span>
+        <span class="er-box">Verslag</span>
+        <span style="color: var(--muted); font-size: 0.8rem;">(transcript XML)</span>
+      </div>
+      <div class="flow-row">
+        <span class="er-box">Activiteit</span>
+        <span class="er-arrow">→</span>
+        <span class="er-box">Agendapunt</span>
+        <span class="er-arrow">→</span>
+        <span class="er-box">Besluit</span>
+        <span class="er-arrow">→</span>
+        <span class="er-box">Stemming</span>
+      </div>
+      <div class="flow-row">
+        <span class="er-box">Persoon</span>
+        <span class="er-arrow">↔</span>
+        <span class="er-box">Fractie</span>
+        <span style="color: var(--muted);">(via FractieZetelPersoon)</span>
+      </div>
+      <div class="flow-row">
+        <span class="er-box">Zaak</span>
+        <span class="er-arrow">→</span>
+        <span class="er-box">kabinetsappreciatie, zaak_soort</span>
+        <span style="color: var(--muted);">(matched by text overlap)</span>
+      </div>
+    </div>
+    <p><strong>Linking logic:</strong> Speech from Verslag XML (speaker + date) → find Stemming on same date where ActorFractie = speaker's party (or Persoon_Id for roll-call votes).</p>
+  </div>
+
+  <div class="slide">
+    <h2>Data Flow — From Raw to Model Input</h2>
+    <pre class="diagram">
+┌─────────────────────────────────────────────────────────────────────────┐
+│  RAW SOURCES                                                             │
+├─────────────────────────────────────────────────────────────────────────┤
+│  data/raw/*.json          data/texts/verslagen/*.xml                    │
+│  (Stemming, Besluit,      (debate transcripts with                        │
+│   Agendapunt, Activiteit,   &lt;spreker&gt; + &lt;tekst&gt; per speech)              │
+│   Zaak, Fractie, Persoon)                                                │
+└───────────────┬─────────────────────────────────┬───────────────────────┘
+                │                                  │
+                ▼                                  ▼
+┌───────────────────────────┐    ┌───────────────────────────────────────┐
+│  data/processed/*.parquet  │    │  parse_verslagen → speeches.parquet   │
+│  (cleaned, normalized)    │    │  (persoon_id, fractie, speech_text,   │
+└───────────────┬───────────┘    │   activiteit_onderwerp, zaak_ids)     │
+                │                └───────────────────┬───────────────────┘
+                │                                    │
+                └──────────── LINK ──────────────────┘
+                              │
+                              ▼
+                ┌─────────────────────────────────────┐
+                │  speech_vote_pairs.parquet          │
+                │  (speech_text, fractie, vote,       │
+                │   besluit_tekst, agendapunt_onderwerp, datum) │
+                └─────────────────┬───────────────────┘
+                                  │
+                    ┌─────────────┼─────────────┐
+                    ▼             ▼             ▼
+              train.parquet  val.parquet  test.parquet
+              (≤2021)        (2022)      (≥2023)
+</pre>
+  </div>
+
+  <div class="slide">
+    <h2>What Data Does Each Model Use?</h2>
+    <table class="data-table">
+      <tr><th>Model</th><th>Input columns</th><th>Source</th></tr>
+      <tr>
+        <td><strong>Baseline</strong></td>
+        <td>fractie</td>
+        <td class="source">speech_vote_pairs (from Verslag XML spreker)</td>
+      </tr>
+      <tr>
+        <td><strong>Structural (XGBoost)</strong></td>
+        <td>fractie, topic_cluster, zaak_soort, kabinetsappreciatie, is_coalition, speaker_loyalty, party_domain_voor_rate, party_recent_voor_rate, speaker_topic_loyalty</td>
+        <td class="source">speech_vote_pairs + Zaak (token match) + train-derived stats</td>
+      </tr>
+      <tr>
+        <td><strong>RobBERT</strong></td>
+        <td>fractie, besluit_tekst, agendapunt_onderwerp, speech_text</td>
+        <td class="source">speech_vote_pairs (Besluit + Agendapunt context from link)</td>
+      </tr>
+      <tr>
+        <td><strong>Ensemble</strong></td>
+        <td>proba_struct, proba_robbert, agree, conf_delta, is_coalition, party_domain_voor_rate, topic_cluster</td>
+        <td class="source">Outputs of Structural + RobBERT + meta-features</td>
+      </tr>
+    </table>
+    <h3>Derived from</h3>
+    <ul>
+      <li><strong>topic_cluster</strong> — TF-IDF + KMeans on besluit_tekst + agendapunt_onderwerp (20 clusters)</li>
+      <li><strong>kabinetsappreciatie, zaak_soort</strong> — matched from Zaak by token overlap with agendapunt_onderwerp</li>
+      <li><strong>is_coalition</strong> — hardcoded by year (e.g. 2024: PVV, VVD, NSC, BBB)</li>
+      <li><strong>speaker_loyalty, party_*_rate</strong> — computed from training data only (no leakage)</li>
+    </ul>
+  </div>
+
+  <div class="slide">
+    <h2>Data Overview — One Row = One Training Example</h2>
+    <p>Each row in <code>speech_vote_pairs.parquet</code> is a <strong>speech–vote pair</strong>:</p>
+    <table class="data-table">
+      <tr><th>Column</th><th>Source</th><th>Example</th></tr>
+      <tr><td>speech_text</td><td>Verslag XML &lt;tekst&gt;</td><td>"Voorzitter. Dit wetsvoorstel is onaanvaardbaar..."</td></tr>
+      <tr><td>fractie</td><td>Verslag XML &lt;spreker&gt; fractie</td><td>PVV</td></tr>
+      <tr><td>persoon_id</td><td>Verslag XML spreker objectid</td><td>uuid</td></tr>
+      <tr><td>vote</td><td>Stemming.Soort</td><td>Voor / Tegen / Niet deelgenomen</td></tr>
+      <tr><td>besluit_tekst</td><td>Besluit.BesluitTekst</td><td>"Aangenomen." / "Verworpen."</td></tr>
+      <tr><td>agendapunt_onderwerp</td><td>Agendapunt.Onderwerp</td><td>"Motie over immigratie..."</td></tr>
+      <tr><td>datum</td><td>Vergadering.Datum</td><td>2022-03-15</td></tr>
+      <tr><td>vergaderjaar</td><td>Vergadering.Vergaderjaar</td><td>2021-2022</td></tr>
+    </table>
+    <p><strong>Target:</strong> <code>vote</code> (Voor / Tegen). We predict this from the rest.</p>
+  </div>
+
+  <div class="slide">
+    <h2>Model Results</h2>
+    <table>
+      <tr><th>Model</th><th>What it uses</th><th>Val Acc</th><th>Test Acc</th><th>Test F1</th></tr>
+      <tr><td>Baseline</td><td>Party majority only</td><td>62.9%</td><td>60.7%</td><td>0.469</td></tr>
+      <tr><td>Structural</td><td>Party + topic + coalition + history (XGBoost)</td><td>60.4%</td><td>53.3%</td><td>0.517</td></tr>
+      <tr><td>RobBERT v2</td><td>Full speech text (fine-tuned Dutch transformer)</td><td>71.6%</td><td>70.0%</td><td>0.696</td></tr>
+      <tr><td><strong>Ensemble</strong></td><td>Structural + RobBERT combined</td><td><strong>74.0%</strong></td><td><strong>71.9%</strong></td><td><strong>0.711</strong></td></tr>
+    </table>
+    <p><span class="highlight">Key finding:</span> Speech text adds <strong>+9.3pp</strong> over party-only baseline (60.7% → 70.0%).</p>
+  </div>
+
+  <div class="slide">
+    <h2>Accuracy Comparison</h2>
+    <div class="bar-wrap"><span class="bar-label">Baseline (party only)</span><span class="bar-val">60.7%</span><span class="bar" style="width: 60.7%"></span></div>
+    <div class="bar-wrap"><span class="bar-label">Structural (XGBoost)</span><span class="bar-val">53.3%</span><span class="bar" style="width: 53.3%"></span></div>
+    <div class="bar-wrap"><span class="bar-label">RobBERT v2</span><span class="bar-val">70.0%</span><span class="bar" style="width: 70%"></span></div>
+    <div class="bar-wrap"><span class="bar-label">Ensemble (best)</span><span class="bar-val">71.9%</span><span class="bar" style="width: 71.9%"></span></div>
+    <p style="margin-top: 1rem;"><strong>+11.2pp</strong> improvement over baseline with the ensemble.</p>
+  </div>
+
+  <div class="slide">
+    <h2>Per-Party Accuracy</h2>
+    <p>Who's predictable from their speech?</p>
+    <div class="grid2">
+      <div>
+        <h3>Most predictable (≥75%)</h3>
+        <table>
+          <tr><td>NSC</td><td>87.5%</td></tr>
+          <tr><td>VVD</td><td>87.3%</td></tr>
+          <tr><td>CDA</td><td>82.9%</td></tr>
+          <tr><td>ChristenUnie</td><td>77.5%</td></tr>
+          <tr><td>SGP</td><td>76.2%</td></tr>
+        </table>
+      </div>
+      <div>
+        <h3>Least predictable (&lt;55%)</h3>
+        <table>
+          <tr><td>PVV</td><td>51.4%</td></tr>
+          <tr><td>FVD</td><td>51.1%</td></tr>
+        </table>
+      </div>
+    </div>
+    <p><strong>Interpretation:</strong> Coalition parties with strong discipline are predictable. Populist parties (PVV, FVD) vote unpredictably relative to their rhetoric — near coin-flip.</p>
+  </div>
+
+  <div class="slide">
+    <h2>Confusion Matrix (Test Set)</h2>
+    <table>
+      <tr><th></th><th>Predicted Tegen</th><th>Predicted Voor</th></tr>
+      <tr><th>Actual Tegen</th><td>13,137</td><td>5,870</td></tr>
+      <tr><th>Actual Voor</th><td>7,602</td><td>21,412</td></tr>
+    </table>
+    <p><strong>Tegen</strong> recall: 69.1% | <strong>Voor</strong> recall: 73.8%</p>
+    <p>Voor is the majority class (60.4% of test data) — model captures the default support pattern well.</p>
+  </div>
+
+  <div class="slide">
+    <h2>Confidence Analysis</h2>
+    <p>The model knows when it's uncertain:</p>
+    <table>
+      <tr><th>Confidence</th><th>Accuracy</th><th>% of Predictions</th></tr>
+      <tr><td>High (&gt;0.8)</td><td><strong>95.8%</strong></td><td>12%</td></tr>
+      <tr><td>Medium (0.6–0.8)</td><td>~75%</td><td>31%</td></tr>
+      <tr><td>Low (&lt;0.6)</td><td>58.4%</td><td>57%</td></tr>
+    </table>
+    <p><span class="highlight">When confident, the model is almost always right.</span> Most predictions fall in low-confidence — room for improvement.</p>
+  </div>
+
+  <div class="slide">
+    <h2>RobBERT v2 — The Transformer Model</h2>
+    <p><strong>Base model:</strong> <code>DTAI-KULeuven/robbert-2023-dutch-base</code> — Dutch RoBERTa from KU Leuven (~125M parameters), pre-trained on Dutch text.</p>
+    <h3>Input format</h3>
+    <p>Concatenated text with <code>&lt;/s&gt;</code> separator:</p>
+    <pre>[party] </s> [besluit_tekst] </s> [topic] </s> [speech]</pre>
+    <p>Truncation: besluit 500 chars, topic 300 chars, speech 3000 chars. Party and context go first so they're never cut off.</p>
+    <h3>Architecture</h3>
+    <p>RobBERT encoder (12 layers) → CLS token (768-dim) → MLP classifier: <code>768 → 256 (GELU, Dropout) → 64 (GELU, Dropout) → 2</code> (Voor/Tegen).</p>
+    <h3>Training innovations</h3>
+    <ul>
+      <li><strong>Focal loss</strong> — focuses on hard-to-classify examples; confident correct predictions get low loss</li>
+      <li><strong>Progressive unfreezing</strong> — start with classifier only; gradually unfreeze encoder layers (0 → 2 → 4 → 6 layers)</li>
+      <li><strong>Encoder detaching</strong> — when encoder is frozen, skip backward pass through it (6× speedup)</li>
+      <li><strong>Sample reweighting</strong> — per epoch, upweight samples the model gets wrong or is uncertain about</li>
+      <li><strong>Early stopping</strong> — patience 4 epochs; return best model, not final epoch</li>
+    </ul>
+    <p><strong>Best checkpoint:</strong> Epoch 3 (74.0% val accuracy, 2 encoder layers unfrozen).</p>
+  </div>
+
+  <div class="slide">
+    <h2>Structural Model — XGBoost</h2>
+    <p><strong>Purpose:</strong> Predict vote from <em>structured metadata only</em> — no speech text. Captures party patterns, coalition dynamics, and historical voting rates.</p>
+    <h3>Features (no text)</h3>
+    <ul>
+      <li><strong>fractie</strong> — party one-hot (VVD, CDA, PVV, etc.)</li>
+      <li><strong>topic_cluster</strong> — 20 policy domains from TF-IDF + KMeans on besluit + agendapunt text</li>
+      <li><strong>zaak_soort</strong> — Motie, Amendement, etc.</li>
+      <li><strong>kabinetsappreciatie</strong> — government position (Ontraden, Overgenomen, etc.)</li>
+      <li><strong>is_coalition</strong> — 0/1, whether party is in government that year</li>
+      <li><strong>speaker_loyalty</strong> — how often this MP votes with party majority (from train)</li>
+      <li><strong>party_domain_voor_rate</strong> — % Voor by this party in this topic cluster</li>
+      <li><strong>party_recent_voor_rate</strong> — party's overall Voor rate</li>
+      <li><strong>speaker_topic_loyalty</strong> — does this speaker follow party line on this topic?</li>
+    </ul>
+    <h3>Classifier</h3>
+    <p>XGBoost: 500 trees, max_depth 6, class_weight balanced.</p>
+    <p><strong>Result:</strong> 53.3% test accuracy — underperforms baseline. Suggests temporal distribution shift: patterns from 2013–2021 don't generalize to 2023+. But its <em>probabilities</em> still help the ensemble.</p>
+  </div>
+
+  <div class="slide">
+    <h2>Ensemble — Combining Both</h2>
+    <p>The <strong>stacked ensemble</strong> uses a meta-learner (Logistic Regression) to combine:</p>
+    <ul>
+      <li><strong>proba_struct</strong> — XGBoost's Voor probability</li>
+      <li><strong>proba_robbert</strong> — RobBERT's Voor probability</li>
+      <li><strong>agree</strong> — 1 if both predict same class</li>
+      <li><strong>conf_delta</strong> — |proba_struct − proba_robbert|</li>
+      <li>Optional: is_coalition, party_domain_voor_rate, topic_cluster</li>
+    </ul>
+    <p>Meta-learner learns when to trust RobBERT vs. structural model. <strong>71.9%</strong> test accuracy — best of all models.</p>
+  </div>
+
+  <div class="slide">
+    <h2>Key Findings</h2>
+    <ol>
+      <li><strong>Speech text adds real predictive value</strong> (+9.3pp over party alone) — MPs reveal intent through language</li>
+      <li><strong>Ensemble captures complementary signals</strong> — structural + transformer</li>
+      <li><strong>Party discipline varies dramatically</strong> — VVD/NSC/CDA predictable; PVV/FVD near-random</li>
+      <li><strong>Confident predictions are reliable</strong> — 95.8% accuracy when model confidence &gt; 80%</li>
+    </ol>
+  </div>
+
+  <div class="slide">
+    <h2>Limitations & Next Steps</h2>
+    <p><strong>Limitations:</strong></p>
+    <ul>
+      <li>57% of predictions are low-confidence (<0.6)</li>
+      <li>Populist parties (~51%) near-random</li>
+      <li>Structural model underperforms on test (53.3%) — temporal distribution shift</li>
+    </ul>
+    <p><strong>Next steps:</strong></p>
+    <ul>
+      <li>Retrain RobBERT with bug fix (return best model, not final epoch)</li>
+      <li>Per-party or per-topic specialized models</li>
+      <li>Rebellion detection: predict when MP votes against party</li>
+      <li>SHAP analysis for interpretability</li>
+    </ul>
+  </div>
+
+  <div class="slide">
+    <h2>How to Run</h2>
+    <pre>git clone https://github.com/gerritsxd/qweerty.git
+cd qweerty
+python -m venv venv && source venv/bin/activate  # or venv\Scripts\activate on Windows
+pip install -r requirements.txt
+
+python pipeline.py              # Fetch data
+python scripts/overnight_run.py # Train models
+streamlit run app/dashboard.py  # Launch dashboard</pre>
+  </div>
+
+  <div class="slide">
+    <h2>Dashboard Demo</h2>
+    <p><code>streamlit run app/dashboard.py</code></p>
+    <ul>
+      <li>Browse speech–vote pairs with filters</li>
+      <li>Model predictions with confidence scores</li>
+      <li>Per-party accuracy breakdowns</li>
+      <li><strong>Live prediction:</strong> paste a speech excerpt → get vote prediction</li>
+    </ul>
+  </div>
+
+  <div class="slide">
+    <h2>Thank you</h2>
+    <p><strong>Predicting Parliamentary Votes from Debate Speeches</strong></p>
+    <p>Tweede Kamer Open Data — <a href="https://github.com/gerritsxd/qweerty" style="color: var(--accent)">github.com/gerritsxd/qweerty</a></p>
+  </div>
+
+</body>
+</html>
