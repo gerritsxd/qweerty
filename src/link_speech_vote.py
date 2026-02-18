@@ -30,6 +30,8 @@ from pathlib import Path
 import pandas as pd
 from tqdm import tqdm
 
+from src.person_matcher import PersonMatcher
+
 logger = logging.getLogger(__name__)
 
 # Dutch stopwords for topic matching (minimal set)
@@ -268,6 +270,9 @@ def link_speeches_to_votes(
     substantive["_act_idx"] = substantive.groupby("activiteit_id").cumcount()
     substantive["_act_total"] = substantive["activiteit_id"].map(act_sizes)
     substantive["speech_position"] = substantive["_act_idx"] / substantive["_act_total"].clip(lower=1)
+
+    # NOTE: ActiviteitActor would give canonical Persoon_Id, but speech activiteit_ids (Vlos/XML)
+    # do not match ActiviteitActor.Activiteit_Id (Parlis) — 0 overlap. See docs/PERSON_ID_LINKING.md
     substantive = substantive.drop(columns=["_act_idx", "_act_total"])
 
     print(f"    Substantive speeches (not chair, not interruptions, >50 chars): {len(substantive):,}")
@@ -526,6 +531,13 @@ def main():
     if pairs.empty:
         print("\n  No pairs found! Check data linking.")
         return
+
+    # Enrich with canonical Persoon.Id via name+party matching
+    print("\n  Enriching with canonical Persoon.Id (name+party matcher)...")
+    pm = PersonMatcher.from_parquet(DATA_DIR)
+    pairs = pm.match_df(pairs)
+    n_canonical = pairs["canonical_persoon_id"].notna().sum()
+    print(f"  Canonical Persoon.Id matched: {n_canonical:,}/{len(pairs):,} ({n_canonical/max(len(pairs),1)*100:.1f}%)")
 
     # Stats
     print("\n[3/4] Dataset statistics:")

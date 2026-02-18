@@ -208,6 +208,24 @@ python scripts/train_robbert.py
 streamlit run app/dashboard.py
 ```
 
+### Hemicycle Vote Visualization
+
+Interactive visualization of the Tweede Kamer hemicycle with predicted vote probabilities per seat.
+
+**To view (data already pre-computed):**
+
+1. Open `outputs/hemicycle.html` in your browser (double-click, or drag into Chrome/Edge/Firefox).
+2. Use the dropdown to switch between 20 different votes and see how predictions change.
+3. Hover over any seat for MP name, party, predicted probability, and actual vote.
+
+**To regenerate the data** (if you retrain the model or want different votes):
+
+```bash
+python scripts/precompute_viz_data.py
+```
+
+This updates both `hemicycle_data.json` and embeds it into `hemicycle.html` so it works when opened via `file://` (no web server needed).
+
 ---
 
 ## Training Pipeline Details
