@@ -178,6 +178,17 @@
     white-space: nowrap;
   }
   #how-it-works-btn:hover { background: #1e1e4a; }
+  .nav-link {
+    padding: 8px 16px;
+    font-size: 13px;
+    background: #16163a;
+    color: #a0a0c0;
+    border: 1px solid #ffffff25;
+    border-radius: 6px;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .nav-link:hover { background: #1e1e4a; color: #fff; }
 
   /* Accordion sections */
   .methodology-accordion { margin-bottom: 12px; }
@@ -328,6 +339,7 @@
 <header>
   <h1>TWEEDE KAMER <span>Vote Predictions</span></h1>
   <button type="button" id="how-it-works-btn">How It Works</button>
+  <a class="nav-link" href="timeseries.html">Voting Dynamics &rarr;</a>
   <select id="vote-select"></select>
   <div id="stats-bar"></div>
 </header>
