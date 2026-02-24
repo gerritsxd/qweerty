@@ -119,12 +119,158 @@
     border: 1px solid #ffffff20;
   }
   .cb-label { font-size: 11px; color: #888; }
+
+  /* How It Works overlay panel */
+  #methodology-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.85);
+    z-index: 200;
+    overflow-y: auto;
+    padding: 24px;
+  }
+  #methodology-overlay.open { display: block; }
+  #methodology-panel {
+    max-width: 720px;
+    margin: 0 auto 40px;
+    background: #0e0e24;
+    border: 1px solid #ffffff20;
+    border-radius: 12px;
+    padding: 28px 32px;
+  }
+  #methodology-panel h2 {
+    font-size: 22px;
+    color: #fff;
+    margin-bottom: 8px;
+  }
+  #methodology-panel .subtitle {
+    font-size: 13px;
+    color: #999;
+    margin-bottom: 24px;
+  }
+  .methodology-close {
+    position: fixed;
+    top: 20px;
+    right: 24px;
+    width: 40px;
+    height: 40px;
+    background: #16163a;
+    border: 1px solid #ffffff25;
+    border-radius: 8px;
+    color: #e0e0e0;
+    font-size: 20px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 201;
+  }
+  .methodology-close:hover { background: #1e1e4a; }
+  #how-it-works-btn {
+    padding: 8px 16px;
+    font-size: 13px;
+    background: #16163a;
+    color: #f9c74f;
+    border: 1px solid #ffffff25;
+    border-radius: 6px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  #how-it-works-btn:hover { background: #1e1e4a; }
+
+  /* Accordion sections */
+  .methodology-accordion { margin-bottom: 12px; }
+  .methodology-accordion-header {
+    padding: 14px 18px;
+    background: #16163a;
+    border: 1px solid #ffffff15;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 15px;
+    color: #e0e0e0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .methodology-accordion-header:hover { background: #1a1a45; }
+  .methodology-accordion-header::after {
+    content: '+';
+    font-size: 18px;
+    color: #999;
+  }
+  .methodology-accordion.open .methodology-accordion-header::after { content: '−'; }
+  .methodology-accordion-body {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.3s ease;
+  }
+  .methodology-accordion.open .methodology-accordion-body { max-height: 1200px; }
+  .methodology-accordion-content {
+    padding: 18px 18px 24px;
+    border: 1px solid #ffffff10;
+    border-top: none;
+    border-radius: 0 0 8px 8px;
+    background: #0a0a1a;
+    font-size: 14px;
+    line-height: 1.65;
+    color: #ccc;
+  }
+  .methodology-accordion-content p { margin-bottom: 12px; }
+  .methodology-accordion-content p:last-child { margin-bottom: 0; }
+  .methodology-accordion-content code {
+    background: #16163a;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 13px;
+    color: #f9c74f;
+  }
+
+  /* Flow diagrams */
+  .flow-diagram {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin: 16px 0;
+    padding: 16px;
+    background: #0e0e24;
+    border-radius: 8px;
+    font-size: 13px;
+  }
+  .flow-box {
+    padding: 8px 12px;
+    background: #16163a;
+    border: 1px solid #ffffff20;
+    border-radius: 6px;
+    color: #e0e0e0;
+  }
+  .flow-arrow { color: #f9c74f; font-size: 16px; }
+  .timeline-bar {
+    display: flex;
+    margin: 16px 0;
+    border-radius: 6px;
+    overflow: hidden;
+    border: 1px solid #ffffff15;
+  }
+  .timeline-seg {
+    flex: 1;
+    padding: 10px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    text-align: center;
+  }
+  .timeline-train { background: #1a3a2e; color: #2a9d8f; }
+  .timeline-val { background: #2a2a4a; color: #a0a0ff; }
+  .timeline-test { background: #3a2a2a; color: #e63946; }
 </style>
 </head>
 <body>
 
 <header>
   <h1>TWEEDE KAMER <span>Vote Predictions</span></h1>
+  <button type="button" id="how-it-works-btn">How It Works</button>
   <select id="vote-select"></select>
   <div id="stats-bar"></div>
 </header>
@@ -153,6 +299,106 @@
     <span class="cb-label">Tegen</span>
     <canvas id="colorbar" width="200" height="14"></canvas>
     <span class="cb-label">Voor</span>
+  </div>
+</div>
+
+<div id="methodology-overlay">
+  <button type="button" class="methodology-close" id="methodology-close" aria-label="Close">×</button>
+  <div id="methodology-panel">
+    <h2>How It Works</h2>
+    <p class="subtitle">From debate transcripts to vote predictions — a short guide to our methodology</p>
+
+    <div class="methodology-accordion open" data-section="1">
+      <div class="methodology-accordion-header">1. Data Collection</div>
+      <div class="methodology-accordion-body">
+        <div class="methodology-accordion-content">
+          <p>The Dutch parliament (Tweede Kamer) publishes all debate transcripts and individual votes as open data. We fetch 35+ entity types from the official OData API — people, parties, agenda items, decisions, and votes.</p>
+          <p>Debate transcripts come as XML files (Verslagen). We parse these to extract individual speech segments: who spoke, when, and what they said.</p>
+          <div class="flow-diagram">
+            <span class="flow-box">OData API</span>
+            <span class="flow-arrow">→</span>
+            <span class="flow-box">35 entity tables</span>
+            <span class="flow-arrow">+</span>
+            <span class="flow-box">Verslag XML</span>
+            <span class="flow-arrow">→</span>
+            <span class="flow-box">Speech segments</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="methodology-accordion" data-section="2">
+      <div class="methodology-accordion-header">2. Linking Speeches to Votes</div>
+      <div class="methodology-accordion-body">
+        <div class="methodology-accordion-content">
+          <p>This is the hardest step: connecting what an MP said in debate to how they voted on the same topic. We use two strategies:</p>
+          <p><strong>Strategy 1:</strong> Direct match — when the transcript references an activity ID, we follow the chain: Activiteit → Agendapunt → Besluit → Stemming.</p>
+          <p><strong>Strategy 2:</strong> Date + topic fallback — when no direct link exists, we match speeches to votes on the same date (or next day) by topic overlap (minimum 2 shared words between speech topic and agenda item).</p>
+          <p>To link speakers to canonical person IDs: we use a name + party lookup with 99.3% coverage.</p>
+          <div class="flow-diagram">
+            <span class="flow-box">Speech</span>
+            <span class="flow-arrow">→</span>
+            <span class="flow-box">Agendapunt</span>
+            <span class="flow-arrow">→</span>
+            <span class="flow-box">Besluit</span>
+            <span class="flow-arrow">→</span>
+            <span class="flow-box">Stemming</span>
+          </div>
+          <p><strong>Result:</strong> 153,000 speech–vote pairs.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="methodology-accordion" data-section="3">
+      <div class="methodology-accordion-header">3. Data Split &amp; Features</div>
+      <div class="methodology-accordion-body">
+        <div class="methodology-accordion-content">
+          <p>We use a <strong>temporal split</strong> so the model never sees the future: train on data up to 2021, validate on 2022, test on 2023 and later. This prevents data leakage and simulates real-world deployment.</p>
+          <div class="timeline-bar">
+            <span class="timeline-seg timeline-train">Train ≤2021</span>
+            <span class="timeline-seg timeline-val">Val 2022</span>
+            <span class="timeline-seg timeline-test">Test ≥2023</span>
+          </div>
+          <p><strong>Features:</strong> Party, coalition status, topic cluster (from TF-IDF + KMeans on decision text), historical voting rates by party and topic, and — most importantly — the full speech text.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="methodology-accordion" data-section="4">
+      <div class="methodology-accordion-header">4. The RobBERT Model</div>
+      <div class="methodology-accordion-body">
+        <div class="methodology-accordion-content">
+          <p>RobBERT is a Dutch language model pre-trained on billions of Dutch words. It reads text and outputs a probability: how likely is this MP to vote Voor (vs Tegen)?</p>
+          <p><strong>Input format:</strong> We feed the model <code>[party] [besluit text] [topic] [speech excerpt]</code> — up to 256 tokens per request (roughly the first 1,500 characters of the speech).</p>
+          <p><strong>Training:</strong> We fine-tune the model on our data. Key techniques: <em>focal loss</em> (focus on hard examples), <em>progressive unfreezing</em> (gradually let the model adapt its language understanding), and <em>sample reweighting</em> (upweight uncertain samples each epoch).</p>
+          <div class="flow-diagram">
+            <span class="flow-box">Input text</span>
+            <span class="flow-arrow">→</span>
+            <span class="flow-box">RobBERT</span>
+            <span class="flow-arrow">→</span>
+            <span class="flow-box">Classifier</span>
+            <span class="flow-arrow">→</span>
+            <span class="flow-box">Voor/Tegen</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="methodology-accordion" data-section="5">
+      <div class="methodology-accordion-header">5. Reading the Hemicycle</div>
+      <div class="methodology-accordion-body">
+        <div class="methodology-accordion-content">
+          <p><strong>Colors:</strong> Green = predicted Voor, red = predicted Tegen. The gradient shows confidence (darker = more confident).</p>
+          <p><strong>Three prediction sources:</strong></p>
+          <ul style="margin: 12px 0 12px 20px;">
+            <li><strong>White border</strong> — MP gave a speech; we use the direct model prediction.</li>
+            <li><strong>Thin border</strong> — Same-party colleague; we average predictions from speakers in that party.</li>
+            <li><strong>Faint border</strong> — No speakers from this party; we use the historical voting pattern for that party.</li>
+          </ul>
+          <p><strong>Accuracy:</strong> The percentage of seats where our prediction matched the actual vote. High-confidence predictions (>80%) are usually correct; low-confidence ones are less reliable.</p>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -452,6 +698,21 @@ for (let x = 0; x < 200; x++) {
   cbCtx.fillStyle = probColor(x / 199);
   cbCtx.fillRect(x, 0, 1, 14);
 }
+
+// Methodology panel toggle
+const overlay = document.getElementById('methodology-overlay');
+const howItWorksBtn = document.getElementById('how-it-works-btn');
+const methodologyClose = document.getElementById('methodology-close');
+howItWorksBtn.addEventListener('click', () => { overlay.classList.add('open'); });
+methodologyClose.addEventListener('click', () => { overlay.classList.remove('open'); });
+overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.classList.remove('open'); });
+
+// Accordion expand/collapse
+document.querySelectorAll('.methodology-accordion').forEach(acc => {
+  acc.querySelector('.methodology-accordion-header').addEventListener('click', () => {
+    acc.classList.toggle('open');
+  });
+});
 
 loadData();
 </script>
