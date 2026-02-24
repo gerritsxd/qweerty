@@ -206,7 +206,7 @@
     overflow: hidden;
     transition: max-height 0.3s ease;
   }
-  .methodology-accordion.open .methodology-accordion-body { max-height: 1200px; }
+  .methodology-accordion.open .methodology-accordion-body { max-height: 2500px; }
   .methodology-accordion-content {
     padding: 18px 18px 24px;
     border: 1px solid #ffffff10;
@@ -264,6 +264,63 @@
   .timeline-train { background: #1a3a2e; color: #2a9d8f; }
   .timeline-val { background: #2a2a4a; color: #a0a0ff; }
   .timeline-test { background: #3a2a2a; color: #e63946; }
+
+  /* Comprehensive panel extras */
+  .method-sub {
+    font-size: 13px;
+    font-weight: 700;
+    color: #f9c74f;
+    margin: 16px 0 8px;
+  }
+  .method-sub:first-of-type { margin-top: 0; }
+  .method-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0;
+    font-size: 12px;
+  }
+  .method-table th, .method-table td {
+    padding: 6px 10px;
+    text-align: left;
+    border: 1px solid #ffffff15;
+  }
+  .method-table th { background: #16163a; color: #e0e0e0; }
+  .method-table td { color: #bbb; }
+  .stat-highlight {
+    display: inline-block;
+    padding: 4px 10px;
+    background: #1a2a3a;
+    border: 1px solid #2a9d8f40;
+    border-radius: 6px;
+    font-weight: 600;
+    color: #2a9d8f;
+    margin: 4px 4px 4px 0;
+  }
+  .flow-multi {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 12px;
+    align-items: center;
+    margin: 16px 0;
+    padding: 16px;
+    background: #0e0e24;
+    border-radius: 8px;
+    font-size: 12px;
+  }
+  .flow-multi .col { padding: 8px; }
+  .arch-diagram {
+    padding: 16px;
+    background: #0a0a1a;
+    border: 1px solid #ffffff15;
+    border-radius: 8px;
+    font-family: monospace;
+    font-size: 12px;
+    line-height: 1.8;
+    color: #aaa;
+    margin: 12px 0;
+  }
+  .methodology-accordion-content ul { margin: 8px 0 12px 20px; }
+  .methodology-accordion-content li { margin-bottom: 4px; }
 </style>
 </head>
 <body>
@@ -306,35 +363,63 @@
   <button type="button" class="methodology-close" id="methodology-close" aria-label="Close">×</button>
   <div id="methodology-panel">
     <h2>How It Works</h2>
-    <p class="subtitle">From debate transcripts to vote predictions — a short guide to our methodology</p>
+    <p class="subtitle">From API request to individual vote prediction — a comprehensive guide to our pipeline</p>
 
     <div class="methodology-accordion open" data-section="1">
-      <div class="methodology-accordion-header">1. Data Collection</div>
+      <div class="methodology-accordion-header">1. Data Sources — The Tweede Kamer Open Data</div>
       <div class="methodology-accordion-body">
         <div class="methodology-accordion-content">
-          <p>The Dutch parliament (Tweede Kamer) publishes all debate transcripts and individual votes as open data. We fetch 35+ entity types from the official OData API — people, parties, agenda items, decisions, and votes.</p>
-          <p>Debate transcripts come as XML files (Verslagen). We parse these to extract individual speech segments: who spoke, when, and what they said.</p>
+          <p>We use the <strong>OData v4 API</strong> (a REST-based protocol for querying structured data) at <code>gegevensmagazijn.tweedekamer.nl</code>. The parliament publishes 35+ entity types: people, parties, agenda items, decisions, votes, and more.</p>
+          <p><strong>Pagination</strong> (how we fetch large datasets): The API returns ~250 records per page. We follow <code>@odata.nextLink</code> until all records are retrieved. We filter with <code>Verwijderd eq false</code> to exclude deleted records.</p>
+          <table class="method-table">
+            <tr><th>Entity</th><th>Purpose</th></tr>
+            <tr><td>Persoon</td><td>MPs and officials</td></tr>
+            <tr><td>Fractie</td><td>Parliamentary parties</td></tr>
+            <tr><td>Stemming</td><td>Individual votes (Voor/Tegen/Niet)</td></tr>
+            <tr><td>Besluit</td><td>Decisions taken (Aangenomen/Verworpen)</td></tr>
+            <tr><td>Activiteit, Agendapunt</td><td>Debate sessions and agenda items</td></tr>
+            <tr><td>Zaak</td><td>Cases (motions, bills) with government position</td></tr>
+            <tr><td>Vergadering, Verslag</td><td>Meetings and transcript metadata</td></tr>
+          </table>
+          <p><strong>Two data streams:</strong> (1) Structured tables are fetched as JSON and preprocessed into Parquet (columnar, compressed). (2) Debate transcripts are downloaded as XML from <code>Verslag/{Id}/resource</code> and parsed separately.</p>
           <div class="flow-diagram">
             <span class="flow-box">OData API</span>
             <span class="flow-arrow">→</span>
-            <span class="flow-box">35 entity tables</span>
+            <span class="flow-box">data/raw/*.json</span>
+            <span class="flow-arrow">→</span>
+            <span class="flow-box">data/processed/*.parquet</span>
             <span class="flow-arrow">+</span>
             <span class="flow-box">Verslag XML</span>
             <span class="flow-arrow">→</span>
-            <span class="flow-box">Speech segments</span>
+            <span class="flow-box">speeches.parquet</span>
           </div>
         </div>
       </div>
     </div>
 
     <div class="methodology-accordion" data-section="2">
-      <div class="methodology-accordion-header">2. Linking Speeches to Votes</div>
+      <div class="methodology-accordion-header">2. Parsing Debate Transcripts</div>
       <div class="methodology-accordion-body">
         <div class="methodology-accordion-content">
-          <p>This is the hardest step: connecting what an MP said in debate to how they voted on the same topic. We use two strategies:</p>
-          <p><strong>Strategy 1:</strong> Direct match — when the transcript references an activity ID, we follow the chain: Activiteit → Agendapunt → Besluit → Stemming.</p>
-          <p><strong>Strategy 2:</strong> Date + topic fallback — when no direct link exists, we match speeches to votes on the same date (or next day) by topic overlap (minimum 2 shared words between speech topic and agenda item).</p>
-          <p>To link speakers to canonical person IDs: we use a name + party lookup with 99.3% coverage.</p>
+          <p>The XML transcripts follow a hierarchical structure. We traverse: <code>vergadering</code> (meeting) → <code>activiteit</code> (activity) → <code>activiteithoofd</code> (agenda head) → <code>activiteitdeel</code> (segment) → <code>woordvoerder</code> (speaker).</p>
+          <p><strong>Per speech we extract:</strong> speaker name, party (fractie), speech text, timestamps, activity IDs. Interruptions are stored as separate records.</p>
+          <p><strong>Verslag status priority:</strong> When multiple transcript versions exist, we prefer <em>Gecorrigeerd</em> (corrected) > <em>Ongecorrigeerd</em> > <em>Voorpublicatie</em> > <em>Casco</em> (skeleton only).</p>
+          <p><strong>Text cleaning:</strong> We remove attribution lines (e.g. "Mevrouw X (VVD):") and join paragraphs into clean speech text.</p>
+          <div class="arch-diagram">vergadering<br>  └─ activiteit (activiteit_id, onderwerp)<br>      └─ activiteithoofd<br>          └─ activiteitdeel<br>              └─ woordvoerder (spreker, fractie, tekst)</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="methodology-accordion" data-section="3">
+      <div class="methodology-accordion-header">3. Linking Speeches to Votes — The Hardest Step</div>
+      <div class="methodology-accordion-body">
+        <div class="methodology-accordion-content">
+          <p><strong>The core problem:</strong> Transcripts come from Vlos; votes from Parlis/Sesam. These systems use different ID spaces — zero overlap. We must link by matching context.</p>
+          <p><strong>Strategy 1 — Direct match:</strong> When the transcript references an <code>activiteit_id</code>, we follow the chain: Activiteit → Agendapunt → Besluit → Stemming. We filter substantive speeches (not chair, not interruption, has party, &gt;50 chars).</p>
+          <p><strong>Strategy 2 — Date + topic fallback:</strong> When no direct link exists, we find "Stemmingen" activities on the same date (or +1 day). We require ≥2 shared words between speech topic and agenda item (after stopword removal).</p>
+          <p><strong>Vote lookup:</strong> For each Besluit, we find the speaker's vote by: (1) individual match on Persoon_Id, (2) faction match on ActorFractie, (3) lowercase fuzzy faction fallback.</p>
+          <p><strong>Deduplication:</strong> If an MP spoke multiple times on the same decision, we keep the longest speech. Link quality: 1 = direct, 3 = topic-filtered date.</p>
+          <p><strong>PersonMatcher:</strong> To map speech speakers to canonical Persoon.Id, we use 4 strategies: exact (name, party), party aliases (e.g. "GroenLinks" → "GL"), compound name prefix ("Dik" → "Dik-Faber"), and unambiguous name-only. <span class="stat-highlight">99.3% coverage</span>, 16 unmatched pairs.</p>
           <div class="flow-diagram">
             <span class="flow-box">Speech</span>
             <span class="flow-arrow">→</span>
@@ -344,58 +429,101 @@
             <span class="flow-arrow">→</span>
             <span class="flow-box">Stemming</span>
           </div>
-          <p><strong>Result:</strong> 153,000 speech–vote pairs.</p>
-        </div>
-      </div>
-    </div>
-
-    <div class="methodology-accordion" data-section="3">
-      <div class="methodology-accordion-header">3. Data Split &amp; Features</div>
-      <div class="methodology-accordion-body">
-        <div class="methodology-accordion-content">
-          <p>We use a <strong>temporal split</strong> so the model never sees the future: train on data up to 2021, validate on 2022, test on 2023 and later. This prevents data leakage and simulates real-world deployment.</p>
-          <div class="timeline-bar">
-            <span class="timeline-seg timeline-train">Train ≤2021</span>
-            <span class="timeline-seg timeline-val">Val 2022</span>
-            <span class="timeline-seg timeline-test">Test ≥2023</span>
-          </div>
-          <p><strong>Features:</strong> Party, coalition status, topic cluster (from TF-IDF + KMeans on decision text), historical voting rates by party and topic, and — most importantly — the full speech text.</p>
+          <p><strong>Result:</strong> <span class="stat-highlight">153,000</span> speech–vote pairs.</p>
         </div>
       </div>
     </div>
 
     <div class="methodology-accordion" data-section="4">
-      <div class="methodology-accordion-header">4. The RobBERT Model</div>
+      <div class="methodology-accordion-header">4. Temporal Split — Why We Separate Past from Future</div>
       <div class="methodology-accordion-body">
         <div class="methodology-accordion-content">
-          <p>RobBERT is a Dutch language model pre-trained on billions of Dutch words. It reads text and outputs a probability: how likely is this MP to vote Voor (vs Tegen)?</p>
-          <p><strong>Input format:</strong> We feed the model <code>[party] [besluit text] [topic] [speech excerpt]</code> — up to 256 tokens per request (roughly the first 1,500 characters of the speech).</p>
-          <p><strong>Training:</strong> We fine-tune the model on our data. Key techniques: <em>focal loss</em> (focus on hard examples), <em>progressive unfreezing</em> (gradually let the model adapt its language understanding), and <em>sample reweighting</em> (upweight uncertain samples each epoch).</p>
-          <div class="flow-diagram">
-            <span class="flow-box">Input text</span>
-            <span class="flow-arrow">→</span>
-            <span class="flow-box">RobBERT</span>
-            <span class="flow-arrow">→</span>
-            <span class="flow-box">Classifier</span>
-            <span class="flow-arrow">→</span>
-            <span class="flow-box">Voor/Tegen</span>
+          <p>A <strong>temporal split</strong> ensures the model never sees the future: we train on past data, validate on a held-out year, and test on future years. This prevents data leakage and simulates real-world deployment (predicting votes before they happen).</p>
+          <div class="timeline-bar">
+            <span class="timeline-seg timeline-train">Train ≤2021 (92,919)</span>
+            <span class="timeline-seg timeline-val">Val 2022 (12,414)</span>
+            <span class="timeline-seg timeline-test">Test ≥2023 (48,021)</span>
           </div>
+          <p><strong>Class distribution:</strong> ~60% Voor, ~40% Tegen. The model must learn to predict the minority class (Tegen) despite imbalance.</p>
         </div>
       </div>
     </div>
 
     <div class="methodology-accordion" data-section="5">
-      <div class="methodology-accordion-header">5. Reading the Hemicycle</div>
+      <div class="methodology-accordion-header">5. Feature Engineering — What the Model Sees</div>
       <div class="methodology-accordion-body">
         <div class="methodology-accordion-content">
-          <p><strong>Colors:</strong> Green = predicted Voor, red = predicted Tegen. The gradient shows confidence (darker = more confident).</p>
-          <p><strong>Three prediction sources:</strong></p>
-          <ul style="margin: 12px 0 12px 20px;">
-            <li><strong>White border</strong> — MP gave a speech; we use the direct model prediction.</li>
+          <p class="method-sub">Basic features</p>
+          <p><strong>speech_length</strong> (character count), optional stance keywords.</p>
+          <p class="method-sub">Zaak matching</p>
+          <p>Token overlap between <code>agendapunt_onderwerp</code> and Zaak records to find <strong>kabinetsappreciatie</strong> (government position: Ontraden, Overgenomen, etc.) and <strong>zaak_soort</strong> (Motie, Amendement). Requires ≥2 shared words.</p>
+          <p class="method-sub">Coalition detection</p>
+          <p>Cabinet period lookup (Rutte II/III/IV, Schoof) with party lists. <strong>is_coalition</strong> = 1 if the MP's party was in government on the vote date.</p>
+          <p class="method-sub">Topic clustering</p>
+          <p>TF-IDF on <code>besluit_tekst</code> + <code>agendapunt_onderwerp</code>, KMeans into 20 clusters. Each vote gets a <strong>topic_cluster</strong> so we learn "how does party X vote on immigration?" not just "how does party X vote?"</p>
+          <p class="method-sub">Historical rates (training data only — no leakage)</p>
+          <p><strong>party_domain_voor_rate</strong>: % Voor by this party in this topic cluster. <strong>party_recent_voor_rate</strong>: party's overall Voor rate. <strong>speaker_topic_loyalty</strong>: does this MP break from party majority on this topic?</p>
+          <p class="method-sub">Speaker loyalty</p>
+          <p>How often does this MP vote with their party majority? Computed from training data.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="methodology-accordion" data-section="6">
+      <div class="methodology-accordion-header">6. The Models — From Baseline to Ensemble</div>
+      <div class="methodology-accordion-body">
+        <div class="methodology-accordion-content">
+          <p class="method-sub">Baseline (60.7% test accuracy)</p>
+          <p>Predict the majority vote per party — "how would most VVD members vote?" No speech text. Establishes how much party alone explains votes.</p>
+          <p class="method-sub">Structural model (53.3% test)</p>
+          <p>XGBoost with 500 trees on all structured features (party, coalition, topic cluster, historical rates, speaker loyalty). Underperforms on test due to <strong>temporal distribution shift</strong> — political patterns change over time.</p>
+          <p class="method-sub">RobBERT v2 (70.0% test)</p>
+          <p><strong>RobBERT</strong> is Dutch RoBERTa (125M parameters), pre-trained on billions of Dutch words. We fine-tune it to read speech text and output Voor/Tegen probability.</p>
+          <p><strong>Input:</strong> <code>[party] &lt;/s&gt; [besluit_tekst] &lt;/s&gt; [topic] &lt;/s&gt; [speech]</code>. Truncation: besluit 300 chars, topic 200, speech 1500. Tokenized to 256 tokens.</p>
+          <p><strong>Classifier head:</strong> 768 → 256 → 64 → 2 (GELU activation, 30% dropout).</p>
+          <p><strong>Focal loss</strong> (gamma=2.0): downweights easy examples, focuses on hard ones — the model cares more about mistakes.</p>
+          <p><strong>Progressive unfreezing:</strong> Epoch 0: classifier only. Epoch 3: top 2 encoder layers. Epoch 6: top 4. Gradually adapts language understanding.</p>
+          <p><strong>Sample reweighting:</strong> mastered (correct + high conf) = 0.3×, uncertain = 1.5×, wrong = 2.0×. Focuses training on what the model struggles with.</p>
+          <div class="arch-diagram">Input text (256 tokens) → RobBERT encoder (768-dim) → CLS token → Linear(768→256) → GELU → Dropout → Linear(256→64) → GELU → Dropout → Linear(64→2) → Softmax → [P(Voor), P(Tegen)]</div>
+          <p class="method-sub">Ensemble (71.9% test)</p>
+          <p>Logistic regression meta-learner on: structural probability, RobBERT probability, agreement (do they match?), confidence delta. Combines both models for best results.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="methodology-accordion" data-section="7">
+      <div class="methodology-accordion-header">7. Results — What the Model Gets Right (and Wrong)</div>
+      <div class="methodology-accordion-body">
+        <div class="methodology-accordion-content">
+          <p><strong>Overall:</strong> <span class="stat-highlight">71.9%</span> accuracy, <span class="stat-highlight">0.711</span> F1 (macro). Precision: Tegen 0.633, Voor 0.785. Recall: Tegen 0.691, Voor 0.738.</p>
+          <p class="method-sub">Per-party accuracy (top / bottom)</p>
+          <table class="method-table">
+            <tr><th>Party</th><th>Accuracy</th><th>Party</th><th>Accuracy</th></tr>
+            <tr><td>NSC</td><td>87.5%</td><td>PVV</td><td>51.4%</td></tr>
+            <tr><td>VVD</td><td>87.3%</td><td>FVD</td><td>51.1%</td></tr>
+            <tr><td>CDA</td><td>82.9%</td><td>Groep Van Haga</td><td>56.1%</td></tr>
+            <tr><td>ChristenUnie</td><td>77.5%</td><td>BIJ1</td><td>57.3%</td></tr>
+            <tr><td>SGP</td><td>76.2%</td><td>PvdA</td><td>59.6%</td></tr>
+          </table>
+          <p><strong>Coalition parties</strong> (VVD, NSC, CDA, CU) are highly predictable — party discipline and coalition agreements align rhetoric with votes. <strong>Populist opposition</strong> (PVV, FVD) are near-random — their voting is less correlated with speech content.</p>
+          <p><strong>Confidence calibration:</strong> When the model is &gt;80% confident, accuracy is 95.8%. When &lt;60% confident, only 58.4%. Low-confidence predictions are less reliable.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="methodology-accordion" data-section="8">
+      <div class="methodology-accordion-header">8. Reading the Hemicycle</div>
+      <div class="methodology-accordion-body">
+        <div class="methodology-accordion-content">
+          <p><strong>Color scale:</strong> Red = predicted Tegen, yellow = uncertain, green = predicted Voor. Darker shades = more confident.</p>
+          <p><strong>Three prediction tiers:</strong></p>
+          <ul>
+            <li><strong>White border (larger dot)</strong> — MP gave a speech in this debate; we use the direct RobBERT model prediction.</li>
             <li><strong>Thin border</strong> — Same-party colleague; we average predictions from speakers in that party.</li>
-            <li><strong>Faint border</strong> — No speakers from this party; we use the historical voting pattern for that party.</li>
+            <li><strong>Faint border</strong> — No speakers from this party; we use the historical voting pattern for that party from the test set.</li>
           </ul>
-          <p><strong>Accuracy:</strong> The percentage of seats where our prediction matched the actual vote. High-confidence predictions (>80%) are usually correct; low-confidence ones are less reliable.</p>
+          <p><strong>Stats bar:</strong> Predicted vs actual Voor/Tegen counts, accuracy (correct/total), and prediction sources (direct, party-average, historical).</p>
+          <p><strong>Limitations:</strong> Some votes are inherently harder — populist parties, low-confidence predictions, or topics where rhetoric and vote diverge.</p>
         </div>
       </div>
     </div>
@@ -706,6 +834,7 @@ const methodologyClose = document.getElementById('methodology-close');
 howItWorksBtn.addEventListener('click', () => { overlay.classList.add('open'); });
 methodologyClose.addEventListener('click', () => { overlay.classList.remove('open'); });
 overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.classList.remove('open'); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && overlay.classList.contains('open')) overlay.classList.remove('open'); });
 
 // Accordion expand/collapse
 document.querySelectorAll('.methodology-accordion').forEach(acc => {
