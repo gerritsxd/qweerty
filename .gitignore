@@ -124,6 +124,10 @@ credentials.json
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 
+# Game-theory external reference data (small, curated, not pipeline output)
+!data/external/
+!data/external/**
+
 # Generated dashboard image
 dashboard.png
 

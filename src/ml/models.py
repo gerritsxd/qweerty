@@ -598,10 +598,11 @@ def train_ensemble_stacked(
     y_true: np.ndarray,
     structural_model: dict,
     train: pd.DataFrame,
+    proba_game: np.ndarray | None = None,
 ) -> dict[str, Any]:
     """
-    Meta-learner stacking: combine structural + RobBERT probabilities.
-    Features: proba_struct, proba_robbert, agreement, confidence_delta, key raw features.
+    Meta-learner stacking: combine structural + RobBERT + game-theoretic probabilities.
+    Features: proba_struct, proba_robbert, proba_game (optional), agreement, confidence_delta, key raw features.
     """
     from sklearn.linear_model import LogisticRegression
 
@@ -613,6 +614,11 @@ def train_ensemble_stacked(
         agree.astype(float),
         conf_delta,
     ])
+    if proba_game is not None and len(proba_game) == len(val):
+        X_meta = np.column_stack([X_meta, proba_game])
+    elif proba_game is not None and len(proba_game) != len(val):
+        # Length mismatch: use neutral 0.5
+        X_meta = np.column_stack([X_meta, np.full(len(val), 0.5, dtype=np.float32)])
     if "is_coalition" in val.columns:
         X_meta = np.column_stack([X_meta, val["is_coalition"].fillna(0).values])
     if "party_domain_voor_rate" in val.columns:
@@ -623,7 +629,7 @@ def train_ensemble_stacked(
     y_enc = (y_true == "Voor").astype(int)
     meta = LogisticRegression(max_iter=500, random_state=42, class_weight="balanced")
     meta.fit(X_meta, y_enc)
-    return {"meta": meta, "n_features": X_meta.shape[1]}
+    return {"meta": meta, "n_features": X_meta.shape[1], "use_game": proba_game is not None}
 
 
 def predict_ensemble_stacked(
@@ -632,6 +638,7 @@ def predict_ensemble_stacked(
     proba_struct: np.ndarray,
     proba_robbert: np.ndarray,
     structural_model: dict,
+    proba_game: np.ndarray | None = None,
 ) -> np.ndarray:
     """Predict using stacked ensemble."""
     agree = (proba_struct > 0.5) == (proba_robbert > 0.5)
@@ -642,6 +649,11 @@ def predict_ensemble_stacked(
         agree.astype(float),
         conf_delta,
     ])
+    if model.get("use_game") and proba_game is not None:
+        if len(proba_game) == len(df):
+            X_meta = np.column_stack([X_meta, proba_game])
+        else:
+            X_meta = np.column_stack([X_meta, np.full(len(df), 0.5, dtype=np.float32)])
     if "is_coalition" in df.columns:
         X_meta = np.column_stack([X_meta, df["is_coalition"].fillna(0).values])
     if "party_domain_voor_rate" in df.columns:

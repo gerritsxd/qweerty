@@ -1,0 +1,13 @@
+event_id,date,description,affected_dimensions,direction,magnitude
+mh17,2014-07-17,MH17 plane crash Ukraine,eu_position;law_order,hawkish,0.3
+refugee_crisis,2015-09-01,European refugee crisis peak,immigration;eu_position,restrictive,0.5
+brexit_ref,2016-06-23,Brexit referendum,eu_position,eu_skeptic,0.2
+trump,2017-01-20,Trump inauguration,law_order;immigration,populist_shift,0.2
+covid_start,2020-03-15,COVID-19 lockdown Netherlands,redistribution;decentralization;law_order,state_expansion,0.4
+covid_peak,2021-01-01,COVID peak winter,redistribution;law_order,state_expansion,0.3
+ukraine_invasion,2022-02-24,Russia invades Ukraine,eu_position;law_order;environment,hawkish;energy,0.6
+energy_crisis,2022-08-01,Energy crisis Europe,environment;redistribution;eu_position,energy_security,0.4
+housing_crisis,2022-01-01,Housing shortage peak,redistribution;decentralization,state_intervention,0.3
+farmers_protests,2022-06-01,Farmers protests nitrogen,environment;decentralization,agriculture,0.4
+election_2023,2023-11-22,Provincial elections BBB win,environment;decentralization,agriculture_shift,0.5
+schoof_cabinet,2024-07-02,Schoof cabinet installed,immigration;law_order,right_shift,0.4

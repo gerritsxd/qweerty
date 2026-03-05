@@ -193,7 +193,20 @@ def main():
         }
         log(f"  RobBERT v2: val={r_rob_val['accuracy']*100:.1f}% test={r_rob_test['accuracy']*100:.1f}%")
 
-    # --- Step 5: Ensemble stacking ---
+    # --- Step 5: Game-theoretic predictions ---
+    proba_game_val = None
+    proba_game_test = None
+    try:
+        from src.game.simulation import predict_vote_probabilities
+        from src.game.calibrate import calibrate_weights
+        calibrated = calibrate_weights(train, val)
+        proba_game_val = predict_vote_probabilities(val, train_df=train, calibrated_weights=calibrated)
+        proba_game_test = predict_vote_probabilities(test, train_df=train, calibrated_weights=calibrated)
+        log("  Game-theoretic model: proba computed for val and test")
+    except Exception as e:
+        log(f"  Game theory skipped: {e}")
+
+    # --- Step 6: Ensemble stacking ---
     if structural_model is not None and robbert_model is not None:
         ensemble_model = run_step(
             "Ensemble stacking",
@@ -204,6 +217,7 @@ def main():
             val["vote"].values,
             structural_model,
             train,
+            proba_game=proba_game_val,
         )
         if ensemble_model is not None:
             proba_struct_val = RESULTS["structural"]["proba_val"]
@@ -211,17 +225,19 @@ def main():
             proba_rob_val = RESULTS["robbert"]["proba_val"]
             proba_rob_test = RESULTS["robbert"]["proba_test"]
             pred_ens_val = predict_ensemble_stacked(
-                ensemble_model, val, proba_struct_val, proba_rob_val, structural_model
+                ensemble_model, val, proba_struct_val, proba_rob_val, structural_model,
+                proba_game=proba_game_val,
             )
             pred_ens_test = predict_ensemble_stacked(
-                ensemble_model, test, proba_struct_test, proba_rob_test, structural_model
+                ensemble_model, test, proba_struct_test, proba_rob_test, structural_model,
+                proba_game=proba_game_test,
             )
             r_ens_val = evaluate(val["vote"].values, pred_ens_val)
             r_ens_test = evaluate(test["vote"].values, pred_ens_test)
             RESULTS["ensemble"] = {"val": r_ens_val, "test": r_ens_test}
             log(f"  Ensemble: val={r_ens_val['accuracy']*100:.1f}% test={r_ens_test['accuracy']*100:.1f}%")
 
-    # --- Step 6: Final report ---
+    # --- Step 7: Final report ---
     run_step("Evaluation report", write_final_report, RESULTS, val, test, start_time)
 
     elapsed = (datetime.now() - start_time).total_seconds()
