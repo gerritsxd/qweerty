@@ -1,0 +1,713 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tweede Kamer — Game Theory</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0a0a1a;
+    color: #e0e0e0;
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── Header ──────────────────────────────────────────── */
+  header {
+    width: 100%;
+    padding: 18px 30px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    background: #0e0e24;
+    border-bottom: 1px solid #ffffff15;
+  }
+  header h1 {
+    font-size: 18px;
+    font-weight: 700;
+    color: #fff;
+    white-space: nowrap;
+  }
+  header h1 span { color: #f9c74f; }
+  .nav-link {
+    padding: 8px 16px;
+    font-size: 13px;
+    background: #16163a;
+    color: #a0a0c0;
+    border: 1px solid #ffffff25;
+    border-radius: 6px;
+    text-decoration: none;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .nav-link:hover { background: #1e1e4a; color: #fff; }
+  .nav-link.active { background: #1e1e4a; color: #f9c74f; border-color: #f9c74f55; }
+  .spacer { flex: 1; }
+
+  /* ── Tabs ─────────────────────────────────────────────── */
+  .tabs {
+    display: flex;
+    gap: 0;
+    padding: 20px 30px 0;
+  }
+  .tab-btn {
+    padding: 10px 24px;
+    font-size: 14px;
+    font-weight: 600;
+    background: #12122e;
+    color: #888;
+    border: 1px solid #ffffff15;
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .tab-btn:hover { color: #ccc; }
+  .tab-btn.active { background: #16163a; color: #f9c74f; border-color: #ffffff25; }
+  .tab-panel {
+    display: none;
+    background: #16163a;
+    border: 1px solid #ffffff15;
+    border-radius: 0 8px 8px 8px;
+    margin: 0 30px 30px;
+    padding: 24px;
+    min-height: 500px;
+  }
+  .tab-panel.active { display: block; }
+
+  /* ── Landscape ────────────────────────────────────────── */
+  .landscape-controls {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 18px;
+    flex-wrap: wrap;
+  }
+  .landscape-controls label { font-size: 13px; color: #aaa; }
+  .landscape-controls select {
+    padding: 6px 10px;
+    font-size: 13px;
+    background: #0e0e24;
+    color: #e0e0e0;
+    border: 1px solid #ffffff25;
+    border-radius: 6px;
+  }
+  #landscape-svg { width: 100%; height: 520px; }
+  .party-dot { cursor: pointer; transition: r 0.2s; }
+  .party-dot:hover { filter: brightness(1.3); }
+  .party-label {
+    font-size: 11px;
+    fill: #ccc;
+    pointer-events: none;
+    font-weight: 600;
+  }
+  .axis-label {
+    font-size: 12px;
+    fill: #888;
+    font-weight: 600;
+  }
+  .grid-line { stroke: #ffffff08; stroke-width: 1; }
+  .coalition-hull {
+    fill: none;
+    stroke-dasharray: 6 4;
+    stroke-width: 1.5;
+    opacity: 0.5;
+  }
+
+  /* ── Payoff breakdown ─────────────────────────────────── */
+  .vote-selector {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+  }
+  .vote-selector select {
+    flex: 1;
+    min-width: 300px;
+    max-width: 600px;
+    padding: 8px 12px;
+    font-size: 13px;
+    background: #0e0e24;
+    color: #e0e0e0;
+    border: 1px solid #ffffff25;
+    border-radius: 6px;
+  }
+  .payoff-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .payoff-row {
+    display: grid;
+    grid-template-columns: 100px 1fr 70px;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+    background: #12122e;
+    border-radius: 6px;
+    border: 1px solid #ffffff08;
+  }
+  .payoff-party {
+    font-weight: 700;
+    font-size: 13px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .payoff-bar-container {
+    height: 28px;
+    background: #0a0a1a;
+    border-radius: 4px;
+    overflow: hidden;
+    display: flex;
+    position: relative;
+  }
+  .payoff-segment {
+    height: 100%;
+    transition: width 0.3s;
+    position: relative;
+  }
+  .payoff-prob {
+    font-size: 13px;
+    font-weight: 700;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ── Payoff legend ────────────────────────────────────── */
+  .payoff-legend {
+    display: flex;
+    gap: 20px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+  .payoff-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: #aaa;
+  }
+  .payoff-legend-swatch {
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+  }
+
+  /* ── Tooltip ──────────────────────────────────────────── */
+  #tooltip {
+    position: fixed;
+    pointer-events: none;
+    background: #16163aee;
+    border: 1px solid #ffffff30;
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-size: 13px;
+    line-height: 1.6;
+    color: #e0e0e0;
+    display: none;
+    z-index: 100;
+    min-width: 200px;
+    max-width: 340px;
+  }
+  #tooltip strong { color: #fff; }
+  #tooltip .dim-row { display: flex; justify-content: space-between; gap: 16px; }
+  #tooltip .dim-bar { width: 80px; height: 8px; background: #0a0a1a; border-radius: 4px; overflow: hidden; }
+  #tooltip .dim-fill { height: 100%; border-radius: 4px; }
+
+  /* ── Info card ─────────────────────────────────────────── */
+  .info-card {
+    background: #12122e;
+    border: 1px solid #ffffff15;
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin-bottom: 20px;
+    font-size: 13px;
+    line-height: 1.7;
+    color: #aaa;
+  }
+  .info-card strong { color: #e0e0e0; }
+  .info-card code { color: #f9c74f; background: #0a0a1a; padding: 1px 5px; border-radius: 3px; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>TWEEDE KAMER <span>Game Theory</span></h1>
+  <div class="spacer"></div>
+  <a class="nav-link" href="index.html">&larr; Hemicycle</a>
+  <a class="nav-link" href="timeseries.html">Voting Dynamics</a>
+</header>
+
+<div class="tabs">
+  <button class="tab-btn active" data-tab="landscape">Strategic Landscape</button>
+  <button class="tab-btn" data-tab="payoffs">Payoff Breakdown</button>
+</div>
+
+<!-- ═══════════════ TAB 1: Strategic Landscape ═══════════════ -->
+<div class="tab-panel active" id="tab-landscape">
+  <div class="info-card">
+    <strong>Party positions</strong> in multi-dimensional policy space (CHES 2019/2023 data).
+    Each dot is a party; axes are policy dimensions on a 0–10 scale.
+    <strong>Dashed outlines</strong> show coalition blocs.
+    Hover a party for its full profile.
+  </div>
+  <div class="landscape-controls">
+    <label>X axis:</label>
+    <select id="dim-x"></select>
+    <label>Y axis:</label>
+    <select id="dim-y"></select>
+    <label style="margin-left: 20px;">Coalition:</label>
+    <select id="coalition-select">
+      <option value="rutte_iii">Rutte III (VVD+CDA+D66+CU)</option>
+      <option value="rutte_iv">Rutte IV (VVD+CDA+D66+CU)</option>
+      <option value="schoof" selected>Schoof (PVV+VVD+NSC+BBB)</option>
+    </select>
+  </div>
+  <svg id="landscape-svg" viewBox="0 0 800 520"></svg>
+</div>
+
+<!-- ═══════════════ TAB 2: Payoff Breakdown ═══════════════ -->
+<div class="tab-panel" id="tab-payoffs">
+  <div class="info-card">
+    Each party's vote decision is modeled as a strategic payoff with four components.
+    The bar shows the <strong>relative contribution</strong> of each factor; the percentage is the model's <strong>P(Voor)</strong>.
+    Select a vote to see how the game theory module breaks it down.
+  </div>
+  <div class="payoff-legend">
+    <div class="payoff-legend-item"><div class="payoff-legend-swatch" style="background:#2a9d8f;"></div> Policy alignment</div>
+    <div class="payoff-legend-item"><div class="payoff-legend-swatch" style="background:#e9c46a;"></div> Coalition loyalty</div>
+    <div class="payoff-legend-item"><div class="payoff-legend-swatch" style="background:#e76f51;"></div> Electoral pressure</div>
+    <div class="payoff-legend-item"><div class="payoff-legend-swatch" style="background:#457b9d;"></div> Reciprocity</div>
+  </div>
+  <div class="vote-selector">
+    <label>Sample vote:</label>
+    <select id="vote-select"></select>
+  </div>
+  <div class="payoff-grid" id="payoff-grid"></div>
+</div>
+
+<div id="tooltip"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════
+// DATA (embedded — same source as the Python game module)
+// ═══════════════════════════════════════════════════════════════════
+
+const PARTY_COLORS = {
+  "PVV":"#002F6C","NSC":"#003D6A","VVD":"#FF6600","BBB":"#94C11F",
+  "GroenLinks-PvdA":"#5FA525","GroenLinks":"#5FA525","PvdA":"#E12B1A",
+  "CDA":"#007B5F","SP":"#ED1C24","D66":"#00AA55","FVD":"#8B1A1A",
+  "PvdD":"#006C2E","ChristenUnie":"#00A3E0","SGP":"#E85B0A",
+  "DENK":"#00A7E1","Volt":"#502379","JA21":"#142856","50Plus":"#93117E",
+};
+
+const DIMENSIONS = [
+  { key: "lrgen",          label: "Left–Right" },
+  { key: "galtan",         label: "GAL–TAN" },
+  { key: "eu_position",    label: "EU Integration" },
+  { key: "immigration",    label: "Immigration" },
+  { key: "environment",    label: "Environment" },
+  { key: "redistribution", label: "Redistribution" },
+  { key: "law_order",      label: "Law & Order" },
+  { key: "decentralization", label: "Decentralization" },
+];
+
+const PARTIES = [
+  { abbrev:"VVD",             lrgen:7.8, galtan:5.2, eu_position:8.2, immigration:6.5, environment:4.5, redistribution:3.2, law_order:7.5, decentralization:6.8 },
+  { abbrev:"CDA",             lrgen:5.5, galtan:6.2, eu_position:7.5, immigration:5.0, environment:5.2, redistribution:4.8, law_order:6.5, decentralization:5.5 },
+  { abbrev:"PVV",             lrgen:5.0, galtan:8.5, eu_position:2.0, immigration:9.5, environment:2.5, redistribution:5.5, law_order:8.5, decentralization:6.0 },
+  { abbrev:"D66",             lrgen:5.2, galtan:3.5, eu_position:8.8, immigration:4.5, environment:7.5, redistribution:5.0, law_order:4.0, decentralization:6.5 },
+  { abbrev:"SP",              lrgen:2.5, galtan:3.8, eu_position:4.5, immigration:5.0, environment:6.0, redistribution:9.0, law_order:4.5, decentralization:5.0 },
+  { abbrev:"GroenLinks",      lrgen:2.8, galtan:2.5, eu_position:8.5, immigration:5.5, environment:9.5, redistribution:8.5, law_order:3.5, decentralization:6.0 },
+  { abbrev:"ChristenUnie",    lrgen:5.0, galtan:6.0, eu_position:7.2, immigration:4.5, environment:6.5, redistribution:5.5, law_order:5.5, decentralization:5.2 },
+  { abbrev:"PvdA",            lrgen:3.5, galtan:3.2, eu_position:8.0, immigration:5.0, environment:7.0, redistribution:8.0, law_order:4.0, decentralization:5.5 },
+  { abbrev:"SGP",             lrgen:6.5, galtan:9.0, eu_position:4.5, immigration:6.0, environment:4.0, redistribution:4.5, law_order:7.5, decentralization:7.0 },
+  { abbrev:"PvdD",            lrgen:2.2, galtan:2.0, eu_position:7.5, immigration:5.0, environment:9.8, redistribution:7.5, law_order:3.0, decentralization:5.5 },
+  { abbrev:"FVD",             lrgen:6.0, galtan:8.0, eu_position:1.5, immigration:8.5, environment:3.0, redistribution:4.0, law_order:8.0, decentralization:7.5 },
+  { abbrev:"DENK",            lrgen:4.0, galtan:5.0, eu_position:6.5, immigration:3.5, environment:5.5, redistribution:6.5, law_order:4.5, decentralization:5.0 },
+  { abbrev:"50Plus",          lrgen:5.5, galtan:5.5, eu_position:6.0, immigration:5.0, environment:4.5, redistribution:5.5, law_order:5.5, decentralization:5.0 },
+  { abbrev:"Volt",            lrgen:5.0, galtan:3.0, eu_position:9.5, immigration:5.0, environment:7.5, redistribution:5.0, law_order:4.0, decentralization:4.0 },
+  { abbrev:"JA21",            lrgen:7.0, galtan:7.0, eu_position:4.0, immigration:7.5, environment:3.5, redistribution:3.5, law_order:7.0, decentralization:6.5 },
+  { abbrev:"BBB",             lrgen:5.5, galtan:6.5, eu_position:5.0, immigration:5.5, environment:4.5, redistribution:4.5, law_order:5.5, decentralization:8.0 },
+  { abbrev:"NSC",             lrgen:5.8, galtan:6.0, eu_position:6.5, immigration:5.5, environment:5.0, redistribution:5.0, law_order:6.0, decentralization:6.0 },
+  { abbrev:"GroenLinks-PvdA", lrgen:3.2, galtan:3.0, eu_position:8.2, immigration:5.0, environment:7.5, redistribution:8.2, law_order:4.0, decentralization:5.5 },
+];
+
+const COALITIONS = {
+  rutte_iii: { parties: ["VVD","CDA","D66","ChristenUnie"], color: "#f9c74f" },
+  rutte_iv:  { parties: ["VVD","CDA","D66","ChristenUnie"], color: "#90be6d" },
+  schoof:    { parties: ["PVV","VVD","NSC","BBB"],          color: "#f94144" },
+};
+
+// Simulated vote scenarios with payoff breakdowns
+const SAMPLE_VOTES = [
+  {
+    id: "nitrogen_reduction",
+    label: "Nitrogen Reduction Act — compulsory buyout of livestock farms",
+    topic: "environment",
+    kabinet: "Overgenomen",
+    parties: [
+      { party:"VVD",             policy:0.35, coalition:0.80, electoral:0.40, reciprocity:0.30, pVoor:0.62 },
+      { party:"PVV",             policy:0.10, coalition:0.15, electoral:0.20, reciprocity:0.15, pVoor:0.18 },
+      { party:"CDA",             policy:0.40, coalition:0.75, electoral:0.35, reciprocity:0.45, pVoor:0.58 },
+      { party:"D66",             policy:0.85, coalition:0.80, electoral:0.70, reciprocity:0.50, pVoor:0.88 },
+      { party:"SP",              policy:0.55, coalition:0.10, electoral:0.45, reciprocity:0.35, pVoor:0.42 },
+      { party:"GroenLinks-PvdA", policy:0.92, coalition:0.10, electoral:0.80, reciprocity:0.45, pVoor:0.82 },
+      { party:"ChristenUnie",    policy:0.60, coalition:0.75, electoral:0.40, reciprocity:0.50, pVoor:0.68 },
+      { party:"PvdD",            policy:0.95, coalition:0.05, electoral:0.85, reciprocity:0.30, pVoor:0.78 },
+      { party:"SGP",             policy:0.25, coalition:0.20, electoral:0.30, reciprocity:0.40, pVoor:0.28 },
+      { party:"BBB",             policy:0.08, coalition:0.10, electoral:0.10, reciprocity:0.20, pVoor:0.12 },
+      { party:"FVD",             policy:0.12, coalition:0.05, electoral:0.15, reciprocity:0.10, pVoor:0.11 },
+      { party:"Volt",            policy:0.80, coalition:0.10, electoral:0.65, reciprocity:0.35, pVoor:0.72 },
+    ],
+  },
+  {
+    id: "asylum_cap",
+    label: "Motion — cap asylum seekers at 15,000 per year",
+    topic: "immigration",
+    kabinet: "Ontraden",
+    parties: [
+      { party:"VVD",             policy:0.65, coalition:0.30, electoral:0.55, reciprocity:0.40, pVoor:0.52 },
+      { party:"PVV",             policy:0.95, coalition:0.15, electoral:0.90, reciprocity:0.20, pVoor:0.88 },
+      { party:"CDA",             policy:0.50, coalition:0.30, electoral:0.40, reciprocity:0.45, pVoor:0.42 },
+      { party:"D66",             policy:0.15, coalition:0.70, electoral:0.25, reciprocity:0.40, pVoor:0.28 },
+      { party:"SP",              policy:0.30, coalition:0.10, electoral:0.35, reciprocity:0.30, pVoor:0.28 },
+      { party:"GroenLinks-PvdA", policy:0.05, coalition:0.10, electoral:0.10, reciprocity:0.25, pVoor:0.10 },
+      { party:"ChristenUnie",    policy:0.20, coalition:0.70, electoral:0.20, reciprocity:0.50, pVoor:0.30 },
+      { party:"PvdD",            policy:0.08, coalition:0.05, electoral:0.10, reciprocity:0.15, pVoor:0.09 },
+      { party:"SGP",             policy:0.60, coalition:0.20, electoral:0.50, reciprocity:0.35, pVoor:0.48 },
+      { party:"BBB",             policy:0.55, coalition:0.15, electoral:0.50, reciprocity:0.30, pVoor:0.45 },
+      { party:"FVD",             policy:0.90, coalition:0.05, electoral:0.85, reciprocity:0.15, pVoor:0.82 },
+      { party:"JA21",            policy:0.80, coalition:0.10, electoral:0.75, reciprocity:0.20, pVoor:0.72 },
+      { party:"NSC",             policy:0.45, coalition:0.15, electoral:0.40, reciprocity:0.35, pVoor:0.38 },
+    ],
+  },
+  {
+    id: "eu_treaty",
+    label: "EU Treaty amendment — deeper fiscal integration",
+    topic: "eu_position",
+    kabinet: "Overgenomen",
+    parties: [
+      { party:"VVD",             policy:0.75, coalition:0.80, electoral:0.50, reciprocity:0.45, pVoor:0.72 },
+      { party:"PVV",             policy:0.05, coalition:0.15, electoral:0.10, reciprocity:0.10, pVoor:0.08 },
+      { party:"CDA",             policy:0.70, coalition:0.75, electoral:0.45, reciprocity:0.50, pVoor:0.68 },
+      { party:"D66",             policy:0.90, coalition:0.80, electoral:0.75, reciprocity:0.55, pVoor:0.88 },
+      { party:"SP",              policy:0.20, coalition:0.10, electoral:0.25, reciprocity:0.30, pVoor:0.22 },
+      { party:"GroenLinks-PvdA", policy:0.80, coalition:0.10, electoral:0.65, reciprocity:0.40, pVoor:0.72 },
+      { party:"ChristenUnie",    policy:0.65, coalition:0.75, electoral:0.40, reciprocity:0.50, pVoor:0.65 },
+      { party:"PvdD",            policy:0.60, coalition:0.05, electoral:0.50, reciprocity:0.30, pVoor:0.48 },
+      { party:"SGP",             policy:0.30, coalition:0.20, electoral:0.25, reciprocity:0.35, pVoor:0.28 },
+      { party:"BBB",             policy:0.35, coalition:0.15, electoral:0.30, reciprocity:0.25, pVoor:0.30 },
+      { party:"FVD",             policy:0.02, coalition:0.05, electoral:0.05, reciprocity:0.08, pVoor:0.04 },
+      { party:"Volt",            policy:0.95, coalition:0.10, electoral:0.85, reciprocity:0.40, pVoor:0.85 },
+      { party:"JA21",            policy:0.25, coalition:0.10, electoral:0.20, reciprocity:0.15, pVoor:0.20 },
+      { party:"NSC",             policy:0.55, coalition:0.15, electoral:0.45, reciprocity:0.40, pVoor:0.42 },
+    ],
+  },
+  {
+    id: "min_wage",
+    label: "Amendment — raise minimum wage by 14%",
+    topic: "redistribution",
+    kabinet: "Ontraden",
+    parties: [
+      { party:"VVD",             policy:0.10, coalition:0.70, electoral:0.20, reciprocity:0.30, pVoor:0.22 },
+      { party:"PVV",             policy:0.50, coalition:0.15, electoral:0.55, reciprocity:0.25, pVoor:0.42 },
+      { party:"CDA",             policy:0.30, coalition:0.70, electoral:0.30, reciprocity:0.40, pVoor:0.35 },
+      { party:"D66",             policy:0.45, coalition:0.70, electoral:0.40, reciprocity:0.45, pVoor:0.48 },
+      { party:"SP",              policy:0.95, coalition:0.10, electoral:0.90, reciprocity:0.40, pVoor:0.88 },
+      { party:"GroenLinks-PvdA", policy:0.90, coalition:0.10, electoral:0.85, reciprocity:0.45, pVoor:0.85 },
+      { party:"ChristenUnie",    policy:0.50, coalition:0.70, electoral:0.35, reciprocity:0.50, pVoor:0.50 },
+      { party:"PvdD",            policy:0.70, coalition:0.05, electoral:0.65, reciprocity:0.30, pVoor:0.58 },
+      { party:"SGP",             policy:0.25, coalition:0.20, electoral:0.25, reciprocity:0.35, pVoor:0.25 },
+      { party:"BBB",             policy:0.35, coalition:0.15, electoral:0.35, reciprocity:0.25, pVoor:0.32 },
+      { party:"DENK",            policy:0.80, coalition:0.10, electoral:0.70, reciprocity:0.35, pVoor:0.72 },
+      { party:"50Plus",          policy:0.60, coalition:0.10, electoral:0.55, reciprocity:0.30, pVoor:0.50 },
+    ],
+  },
+  {
+    id: "defense_spending",
+    label: "Motion — increase defense budget to 3% GDP (NATO+)",
+    topic: "law_order",
+    kabinet: "Overgenomen",
+    parties: [
+      { party:"VVD",             policy:0.85, coalition:0.80, electoral:0.65, reciprocity:0.50, pVoor:0.82 },
+      { party:"PVV",             policy:0.60, coalition:0.15, electoral:0.55, reciprocity:0.20, pVoor:0.48 },
+      { party:"CDA",             policy:0.80, coalition:0.75, electoral:0.60, reciprocity:0.55, pVoor:0.78 },
+      { party:"D66",             policy:0.65, coalition:0.80, electoral:0.50, reciprocity:0.45, pVoor:0.68 },
+      { party:"SP",              policy:0.10, coalition:0.10, electoral:0.15, reciprocity:0.20, pVoor:0.12 },
+      { party:"GroenLinks-PvdA", policy:0.20, coalition:0.10, electoral:0.25, reciprocity:0.30, pVoor:0.20 },
+      { party:"ChristenUnie",    policy:0.55, coalition:0.75, electoral:0.40, reciprocity:0.50, pVoor:0.58 },
+      { party:"PvdD",            policy:0.05, coalition:0.05, electoral:0.10, reciprocity:0.15, pVoor:0.08 },
+      { party:"SGP",             policy:0.70, coalition:0.20, electoral:0.55, reciprocity:0.40, pVoor:0.55 },
+      { party:"BBB",             policy:0.55, coalition:0.15, electoral:0.45, reciprocity:0.30, pVoor:0.42 },
+      { party:"FVD",             policy:0.40, coalition:0.05, electoral:0.35, reciprocity:0.10, pVoor:0.30 },
+      { party:"JA21",            policy:0.75, coalition:0.10, electoral:0.60, reciprocity:0.25, pVoor:0.58 },
+      { party:"NSC",             policy:0.65, coalition:0.15, electoral:0.50, reciprocity:0.40, pVoor:0.52 },
+    ],
+  },
+];
+
+const PAYOFF_COLORS = {
+  policy:     "#2a9d8f",
+  coalition:  "#e9c46a",
+  electoral:  "#e76f51",
+  reciprocity:"#457b9d",
+};
+
+// ═══════════════════════════════════════════════════════════════════
+// TABS
+// ═══════════════════════════════════════════════════════════════════
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+    if (btn.dataset.tab === 'landscape') drawLandscape();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// TAB 1: STRATEGIC LANDSCAPE
+// ═══════════════════════════════════════════════════════════════════
+const dimX = document.getElementById('dim-x');
+const dimY = document.getElementById('dim-y');
+const coalSelect = document.getElementById('coalition-select');
+const tooltip = document.getElementById('tooltip');
+
+DIMENSIONS.forEach((d, i) => {
+  dimX.innerHTML += `<option value="${d.key}" ${i===0?'selected':''}>${d.label}</option>`;
+  dimY.innerHTML += `<option value="${d.key}" ${i===1?'selected':''}>${d.label}</option>`;
+});
+dimX.addEventListener('change', drawLandscape);
+dimY.addEventListener('change', drawLandscape);
+coalSelect.addEventListener('change', drawLandscape);
+
+function drawLandscape() {
+  const svg = document.getElementById('landscape-svg');
+  const svgNS = 'http://www.w3.org/2000/svg';
+  svg.innerHTML = '';
+
+  const xKey = dimX.value;
+  const yKey = dimY.value;
+  const xLabel = DIMENSIONS.find(d => d.key === xKey).label;
+  const yLabel = DIMENSIONS.find(d => d.key === yKey).label;
+  const coal = COALITIONS[coalSelect.value];
+
+  const pad = { top: 40, right: 40, bottom: 50, left: 60 };
+  const vb = svg.viewBox.baseVal;
+  const W = vb.width - pad.left - pad.right;
+  const H = vb.height - pad.top - pad.bottom;
+
+  const scaleX = v => pad.left + (v / 10) * W;
+  const scaleY = v => pad.top + (1 - v / 10) * H;
+
+  // Grid lines
+  for (let i = 0; i <= 10; i += 2) {
+    const gx = scaleX(i), gy = scaleY(i);
+    const lineH = document.createElementNS(svgNS, 'line');
+    lineH.setAttribute('x1', pad.left); lineH.setAttribute('x2', pad.left + W);
+    lineH.setAttribute('y1', gy); lineH.setAttribute('y2', gy);
+    lineH.setAttribute('class', 'grid-line');
+    svg.appendChild(lineH);
+    const lineV = document.createElementNS(svgNS, 'line');
+    lineV.setAttribute('x1', gx); lineV.setAttribute('x2', gx);
+    lineV.setAttribute('y1', pad.top); lineV.setAttribute('y2', pad.top + H);
+    lineV.setAttribute('class', 'grid-line');
+    svg.appendChild(lineV);
+
+    // Tick labels
+    const tx = document.createElementNS(svgNS, 'text');
+    tx.setAttribute('x', gx); tx.setAttribute('y', pad.top + H + 18);
+    tx.setAttribute('text-anchor', 'middle');
+    tx.setAttribute('fill', '#555'); tx.setAttribute('font-size', '10');
+    tx.textContent = i;
+    svg.appendChild(tx);
+    const ty = document.createElementNS(svgNS, 'text');
+    ty.setAttribute('x', pad.left - 10); ty.setAttribute('y', gy + 4);
+    ty.setAttribute('text-anchor', 'end');
+    ty.setAttribute('fill', '#555'); ty.setAttribute('font-size', '10');
+    ty.textContent = i;
+    svg.appendChild(ty);
+  }
+
+  // Axis labels
+  const axX = document.createElementNS(svgNS, 'text');
+  axX.setAttribute('x', pad.left + W / 2); axX.setAttribute('y', pad.top + H + 40);
+  axX.setAttribute('text-anchor', 'middle'); axX.setAttribute('class', 'axis-label');
+  axX.textContent = xLabel;
+  svg.appendChild(axX);
+  const axY = document.createElementNS(svgNS, 'text');
+  axY.setAttribute('x', 16); axY.setAttribute('y', pad.top + H / 2);
+  axY.setAttribute('text-anchor', 'middle'); axY.setAttribute('class', 'axis-label');
+  axY.setAttribute('transform', `rotate(-90 16 ${pad.top + H / 2})`);
+  axY.textContent = yLabel;
+  svg.appendChild(axY);
+
+  // Coalition hull
+  const coalParties = PARTIES.filter(p => coal.parties.includes(p.abbrev));
+  if (coalParties.length >= 3) {
+    const points = coalParties.map(p => [scaleX(p[xKey]), scaleY(p[yKey])]);
+    const hull = convexHull(points);
+    const expanded = expandPolygon(hull, 18);
+    const path = document.createElementNS(svgNS, 'path');
+    path.setAttribute('d', 'M ' + expanded.map(p => p.join(',')).join(' L ') + ' Z');
+    path.setAttribute('class', 'coalition-hull');
+    path.setAttribute('stroke', coal.color);
+    path.setAttribute('fill', coal.color + '10');
+    svg.appendChild(path);
+  }
+
+  // Party dots & labels
+  const usedPositions = [];
+  PARTIES.forEach(p => {
+    const cx = scaleX(p[xKey]);
+    const cy = scaleY(p[yKey]);
+    const isCoal = coal.parties.includes(p.abbrev);
+    const col = PARTY_COLORS[p.abbrev] || '#888';
+
+    const g = document.createElementNS(svgNS, 'g');
+
+    if (isCoal) {
+      const ring = document.createElementNS(svgNS, 'circle');
+      ring.setAttribute('cx', cx); ring.setAttribute('cy', cy); ring.setAttribute('r', 14);
+      ring.setAttribute('fill', 'none'); ring.setAttribute('stroke', coal.color);
+      ring.setAttribute('stroke-width', '2'); ring.setAttribute('stroke-dasharray', '3 2');
+      g.appendChild(ring);
+    }
+
+    const dot = document.createElementNS(svgNS, 'circle');
+    dot.setAttribute('cx', cx); dot.setAttribute('cy', cy); dot.setAttribute('r', 9);
+    dot.setAttribute('fill', col); dot.setAttribute('class', 'party-dot');
+    dot.setAttribute('stroke', '#fff'); dot.setAttribute('stroke-width', isCoal ? '2.5' : '1');
+    g.appendChild(dot);
+
+    // Smart label positioning
+    let lx = cx + 14, ly = cy - 2, anchor = 'start';
+    if (cx > 650) { lx = cx - 14; anchor = 'end'; }
+    const label = document.createElementNS(svgNS, 'text');
+    label.setAttribute('x', lx); label.setAttribute('y', ly);
+    label.setAttribute('text-anchor', anchor); label.setAttribute('class', 'party-label');
+    label.textContent = p.abbrev;
+    g.appendChild(label);
+
+    // Hover
+    g.addEventListener('mouseenter', e => {
+      dot.setAttribute('r', 13);
+      let html = `<strong style="color:${col}">${p.abbrev}</strong><br>`;
+      DIMENSIONS.forEach(dim => {
+        const v = p[dim.key];
+        html += `<div class="dim-row"><span>${dim.label}</span>
+          <div class="dim-bar"><div class="dim-fill" style="width:${v*10}%;background:${col}"></div></div>
+          <span>${v.toFixed(1)}</span></div>`;
+      });
+      if (isCoal) html += `<br><span style="color:${coal.color}">● Coalition member</span>`;
+      tooltip.innerHTML = html;
+      tooltip.style.display = 'block';
+    });
+    g.addEventListener('mousemove', e => {
+      tooltip.style.left = Math.min(e.clientX + 14, window.innerWidth - 360) + 'px';
+      tooltip.style.top = (e.clientY - 20) + 'px';
+    });
+    g.addEventListener('mouseleave', () => {
+      dot.setAttribute('r', 9);
+      tooltip.style.display = 'none';
+    });
+
+    svg.appendChild(g);
+  });
+}
+
+function convexHull(points) {
+  points = points.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  if (points.length <= 1) return points;
+  const cross = (O, A, B) => (A[0]-O[0])*(B[1]-O[1])-(A[1]-O[1])*(B[0]-O[0]);
+  const lower = [];
+  for (const p of points) { while (lower.length >= 2 && cross(lower[lower.length-2], lower[lower.length-1], p) <= 0) lower.pop(); lower.push(p); }
+  const upper = [];
+  for (const p of points.slice().reverse()) { while (upper.length >= 2 && cross(upper[upper.length-2], upper[upper.length-1], p) <= 0) upper.pop(); upper.push(p); }
+  return lower.slice(0, -1).concat(upper.slice(0, -1));
+}
+
+function expandPolygon(pts, d) {
+  const cx = pts.reduce((s,p)=>s+p[0],0)/pts.length;
+  const cy = pts.reduce((s,p)=>s+p[1],0)/pts.length;
+  return pts.map(p => {
+    const dx = p[0]-cx, dy = p[1]-cy;
+    const len = Math.sqrt(dx*dx+dy*dy) || 1;
+    return [p[0]+dx/len*d, p[1]+dy/len*d];
+  });
+}
+
+drawLandscape();
+
+// ═══════════════════════════════════════════════════════════════════
+// TAB 2: PAYOFF BREAKDOWN
+// ═══════════════════════════════════════════════════════════════════
+const voteSelect = document.getElementById('vote-select');
+const payoffGrid = document.getElementById('payoff-grid');
+
+SAMPLE_VOTES.forEach(v => {
+  voteSelect.innerHTML += `<option value="${v.id}">${v.label}</option>`;
+});
+voteSelect.addEventListener('change', drawPayoffs);
+
+function drawPayoffs() {
+  const vote = SAMPLE_VOTES.find(v => v.id === voteSelect.value);
+  if (!vote) return;
+  payoffGrid.innerHTML = '';
+
+  // Sort by pVoor descending
+  const sorted = vote.parties.slice().sort((a, b) => b.pVoor - a.pVoor);
+
+  sorted.forEach(p => {
+    const total = p.policy + p.coalition + p.electoral + p.reciprocity;
+    const pct = v => total > 0 ? (v / total * 100) : 25;
+    const col = PARTY_COLORS[p.party] || '#888';
+
+    const row = document.createElement('div');
+    row.className = 'payoff-row';
+
+    const pName = document.createElement('div');
+    pName.className = 'payoff-party';
+    pName.style.color = col;
+    pName.textContent = p.party;
+
+    const barC = document.createElement('div');
+    barC.className = 'payoff-bar-container';
+
+    const segs = [
+      { key: 'policy',     val: p.policy,     color: PAYOFF_COLORS.policy },
+      { key: 'coalition',  val: p.coalition,   color: PAYOFF_COLORS.coalition },
+      { key: 'electoral',  val: p.electoral,   color: PAYOFF_COLORS.electoral },
+      { key: 'reciprocity',val: p.reciprocity, color: PAYOFF_COLORS.reciprocity },
+    ];
+    segs.forEach(s => {
+      const seg = document.createElement('div');
+      seg.className = 'payoff-segment';
+      seg.style.width = pct(s.val) + '%';
+      seg.style.background = s.color;
+      seg.title = `${s.key}: ${s.val.toFixed(2)}`;
+      barC.appendChild(seg);
+    });
+
+    const prob = document.createElement('div');
+    prob.className = 'payoff-prob';
+    prob.style.color = p.pVoor >= 0.5 ? '#2a9d8f' : '#e76f51';
+    prob.textContent = (p.pVoor * 100).toFixed(0) + '%';
+
+    row.appendChild(pName);
+    row.appendChild(barC);
+    row.appendChild(prob);
+    payoffGrid.appendChild(row);
+  });
+}
+
+drawPayoffs();
+</script>
+</body>
+</html>
