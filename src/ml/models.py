@@ -480,10 +480,14 @@ def _build_structural_X(
         if enc_key in model and model[enc_key] is not None and col in df.columns:
             c = df[col].fillna("Onbekend").astype(str)
             parts.append(model[enc_key].transform(c.values.reshape(-1, 1)))
-    # numeric
+    # numeric (including Markov features)
     num_cols = ["is_coalition", "speaker_loyalty", "speech_position",
                 "party_domain_voor_rate", "party_domain_vote_count",
-                "party_recent_voor_rate", "speaker_topic_loyalty"]
+                "party_recent_voor_rate", "speaker_topic_loyalty",
+                "party_transition_prob", "party_topic_transition_prob",
+                "party_rolling_voor_rate_5", "cross_topic_momentum",
+                "mp_transition_prob", "party_voor_streak",
+                "party_regime_prob_0", "party_regime_prob_1"]
     num_arr = []
     for col in num_cols:
         if col in df.columns:
@@ -599,10 +603,12 @@ def train_ensemble_stacked(
     structural_model: dict,
     train: pd.DataFrame,
     proba_game: np.ndarray | None = None,
+    proba_markov: np.ndarray | None = None,
 ) -> dict[str, Any]:
     """
-    Meta-learner stacking: combine structural + RobBERT + game-theoretic probabilities.
-    Features: proba_struct, proba_robbert, proba_game (optional), agreement, confidence_delta, key raw features.
+    Meta-learner stacking: combine structural + RobBERT + game-theoretic + Markov probabilities.
+    Features: proba_struct, proba_robbert, proba_game (optional), proba_markov (optional),
+    agreement, confidence_delta, key raw features.
     """
     from sklearn.linear_model import LogisticRegression
 
@@ -617,7 +623,10 @@ def train_ensemble_stacked(
     if proba_game is not None and len(proba_game) == len(val):
         X_meta = np.column_stack([X_meta, proba_game])
     elif proba_game is not None and len(proba_game) != len(val):
-        # Length mismatch: use neutral 0.5
+        X_meta = np.column_stack([X_meta, np.full(len(val), 0.5, dtype=np.float32)])
+    if proba_markov is not None and len(proba_markov) == len(val):
+        X_meta = np.column_stack([X_meta, proba_markov])
+    elif proba_markov is not None and len(proba_markov) != len(val):
         X_meta = np.column_stack([X_meta, np.full(len(val), 0.5, dtype=np.float32)])
     if "is_coalition" in val.columns:
         X_meta = np.column_stack([X_meta, val["is_coalition"].fillna(0).values])
@@ -629,7 +638,12 @@ def train_ensemble_stacked(
     y_enc = (y_true == "Voor").astype(int)
     meta = LogisticRegression(max_iter=500, random_state=42, class_weight="balanced")
     meta.fit(X_meta, y_enc)
-    return {"meta": meta, "n_features": X_meta.shape[1], "use_game": proba_game is not None}
+    return {
+        "meta": meta,
+        "n_features": X_meta.shape[1],
+        "use_game": proba_game is not None,
+        "use_markov": proba_markov is not None,
+    }
 
 
 def predict_ensemble_stacked(
@@ -639,6 +653,7 @@ def predict_ensemble_stacked(
     proba_robbert: np.ndarray,
     structural_model: dict,
     proba_game: np.ndarray | None = None,
+    proba_markov: np.ndarray | None = None,
 ) -> np.ndarray:
     """Predict using stacked ensemble."""
     agree = (proba_struct > 0.5) == (proba_robbert > 0.5)
@@ -652,6 +667,11 @@ def predict_ensemble_stacked(
     if model.get("use_game") and proba_game is not None:
         if len(proba_game) == len(df):
             X_meta = np.column_stack([X_meta, proba_game])
+        else:
+            X_meta = np.column_stack([X_meta, np.full(len(df), 0.5, dtype=np.float32)])
+    if model.get("use_markov") and proba_markov is not None:
+        if len(proba_markov) == len(df):
+            X_meta = np.column_stack([X_meta, proba_markov])
         else:
             X_meta = np.column_stack([X_meta, np.full(len(df), 0.5, dtype=np.float32)])
     if "is_coalition" in df.columns:

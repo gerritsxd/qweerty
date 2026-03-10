@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Tweede Kamer — Game Theory</title>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -256,10 +257,17 @@
     Hover a party for its full profile.
   </div>
   <div class="landscape-controls">
+    <label>View:</label>
+    <select id="view-mode">
+      <option value="2d">2D</option>
+      <option value="3d">3D</option>
+    </select>
     <label>X axis:</label>
     <select id="dim-x"></select>
     <label>Y axis:</label>
     <select id="dim-y"></select>
+    <label id="dim-z-label" style="display:none;">Z axis:</label>
+    <select id="dim-z" style="display:none;"></select>
     <label style="margin-left: 20px;">Coalition:</label>
     <select id="coalition-select">
       <option value="rutte_iii">Rutte III (VVD+CDA+D66+CU)</option>
@@ -267,7 +275,10 @@
       <option value="schoof" selected>Schoof (PVV+VVD+NSC+BBB)</option>
     </select>
   </div>
-  <svg id="landscape-svg" viewBox="0 0 800 520"></svg>
+  <div id="landscape-2d-container">
+    <svg id="landscape-svg" viewBox="0 0 800 520"></svg>
+  </div>
+  <div id="landscape-3d-container" style="display:none; width:100%; height:520px;"></div>
 </div>
 
 <!-- ═══════════════ TAB 2: Payoff Breakdown ═══════════════ -->
@@ -467,7 +478,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
     btn.classList.add('active');
     document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
-    if (btn.dataset.tab === 'landscape') drawLandscape();
+    if (btn.dataset.tab === 'landscape') updateView();
   });
 });
 
@@ -479,13 +490,31 @@ const dimY = document.getElementById('dim-y');
 const coalSelect = document.getElementById('coalition-select');
 const tooltip = document.getElementById('tooltip');
 
+const viewMode = document.getElementById('view-mode');
+const dimZ = document.getElementById('dim-z');
+const dimZLabel = document.getElementById('dim-z-label');
+const container2d = document.getElementById('landscape-2d-container');
+const container3d = document.getElementById('landscape-3d-container');
+
 DIMENSIONS.forEach((d, i) => {
   dimX.innerHTML += `<option value="${d.key}" ${i===0?'selected':''}>${d.label}</option>`;
   dimY.innerHTML += `<option value="${d.key}" ${i===1?'selected':''}>${d.label}</option>`;
+  dimZ.innerHTML += `<option value="${d.key}" ${i===2?'selected':''}>${d.label}</option>`;
 });
-dimX.addEventListener('change', drawLandscape);
-dimY.addEventListener('change', drawLandscape);
-coalSelect.addEventListener('change', drawLandscape);
+
+function updateView() {
+  const is3d = viewMode.value === '3d';
+  dimZLabel.style.display = dimZ.style.display = is3d ? 'inline' : 'none';
+  container2d.style.display = is3d ? 'none' : 'block';
+  container3d.style.display = is3d ? 'block' : 'none';
+  if (is3d) drawLandscape3D(); else drawLandscape();
+}
+
+viewMode.addEventListener('change', updateView);
+dimX.addEventListener('change', () => updateView());
+dimY.addEventListener('change', () => updateView());
+dimZ.addEventListener('change', () => { if (viewMode.value === '3d') drawLandscape3D(); });
+coalSelect.addEventListener('change', () => updateView());
 
 function drawLandscape() {
   const svg = document.getElementById('landscape-svg');
@@ -622,6 +651,108 @@ function drawLandscape() {
   });
 }
 
+function drawLandscape3D() {
+  const xKey = dimX.value;
+  const yKey = dimY.value;
+  const zKey = dimZ.value;
+  const xLabel = DIMENSIONS.find(d => d.key === xKey).label;
+  const yLabel = DIMENSIONS.find(d => d.key === yKey).label;
+  const zLabel = DIMENSIONS.find(d => d.key === zKey).label;
+  const coal = COALITIONS[coalSelect.value];
+
+  const traceData = PARTIES.map(p => ({
+    x: p[xKey],
+    y: p[yKey],
+    z: p[zKey],
+    text: p.abbrev,
+    color: PARTY_COLORS[p.abbrev] || '#888',
+    isCoal: coal.parties.includes(p.abbrev),
+  }));
+
+  function hoverText(p) {
+    const party = PARTIES.find(x => x.abbrev === p.text);
+    if (!party) return p.text;
+    let s = '<b>' + p.text + '</b><br>';
+    DIMENSIONS.forEach(d => s += d.label + ': ' + party[d.key].toFixed(1) + '<br>');
+    if (p.isCoal) s += '<br><i>Coalition member</i>';
+    return s;
+  }
+
+  const coalTrace = {
+    x: traceData.filter(t => t.isCoal).map(t => t.x),
+    y: traceData.filter(t => t.isCoal).map(t => t.y),
+    z: traceData.filter(t => t.isCoal).map(t => t.z),
+    text: traceData.filter(t => t.isCoal).map(t => t.text),
+    hovertext: traceData.filter(t => t.isCoal).map(t => hoverText(t)),
+    hoverinfo: 'text',
+    mode: 'markers+text',
+    type: 'scatter3d',
+    marker: {
+      size: 12,
+      color: traceData.filter(t => t.isCoal).map(t => t.color),
+      line: { color: coal.color, width: 2 },
+      symbol: 'circle',
+    },
+    textposition: 'top center',
+    textfont: { size: 10, color: '#e0e0e0' },
+    name: 'Coalition',
+  };
+
+  const otherTrace = {
+    x: traceData.filter(t => !t.isCoal).map(t => t.x),
+    y: traceData.filter(t => !t.isCoal).map(t => t.y),
+    z: traceData.filter(t => !t.isCoal).map(t => t.z),
+    text: traceData.filter(t => !t.isCoal).map(t => t.text),
+    hovertext: traceData.filter(t => !t.isCoal).map(t => hoverText(t)),
+    hoverinfo: 'text',
+    mode: 'markers+text',
+    type: 'scatter3d',
+    marker: {
+      size: 10,
+      color: traceData.filter(t => !t.isCoal).map(t => t.color),
+      line: { color: '#fff', width: 1 },
+      symbol: 'circle',
+    },
+    textposition: 'top center',
+    textfont: { size: 10, color: '#aaa' },
+    name: 'Other',
+  };
+
+  const layout = {
+    margin: { l: 60, r: 30, t: 40, b: 50 },
+    paper_bgcolor: '#0e0e24',
+    plot_bgcolor: '#0a0a1a',
+    font: { family: 'Segoe UI, system-ui, sans-serif', color: '#e0e0e0', size: 12 },
+    scene: {
+      xaxis: { title: xLabel, range: [0, 10], gridcolor: 'rgba(255,255,255,0.08)', zerolinecolor: 'rgba(255,255,255,0.15)' },
+      yaxis: { title: yLabel, range: [0, 10], gridcolor: 'rgba(255,255,255,0.08)', zerolinecolor: 'rgba(255,255,255,0.15)' },
+      zaxis: { title: zLabel, range: [0, 10], gridcolor: 'rgba(255,255,255,0.08)', zerolinecolor: 'rgba(255,255,255,0.15)' },
+      camera: { eye: { x: 1.5, y: 1.5, z: 1.2 } },
+      bgcolor: '#0a0a1a',
+    },
+    showlegend: false,
+  };
+
+  // Center lines (0–10) through midpoint (5,5,5) for orientation
+  const centerLineColor = 'rgba(255,255,255,0.35)';
+  const centerLines = [
+    { x: [0, 10], y: [5, 5], z: [5, 5], name: 'x-center' },
+    { x: [5, 5], y: [0, 10], z: [5, 5], name: 'y-center' },
+    { x: [5, 5], y: [5, 5], z: [0, 10], name: 'z-center' },
+  ].map(l => ({
+    x: l.x, y: l.y, z: l.z,
+    type: 'scatter3d',
+    mode: 'lines',
+    line: { color: centerLineColor, width: 2, dash: 'dot' },
+    hoverinfo: 'skip',
+    showlegend: false,
+  }));
+
+  const config = { responsive: true, displayModeBar: true, displaylogo: false };
+
+  Plotly.newPlot('landscape-3d-container', [...centerLines, coalTrace, otherTrace], layout, config);
+}
+
 function convexHull(points) {
   points = points.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
   if (points.length <= 1) return points;
@@ -643,7 +774,7 @@ function expandPolygon(pts, d) {
   });
 }
 
-drawLandscape();
+updateView();
 
 // ═══════════════════════════════════════════════════════════════════
 // TAB 2: PAYOFF BREAKDOWN

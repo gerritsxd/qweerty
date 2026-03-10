@@ -1,0 +1,56 @@
+Walk-Forward Backtest
+============================================================
+
+Loading data (sample=15000)...
+Test years: [np.int64(2018), np.int64(2019), np.int64(2020), np.int64(2021), np.int64(2022), np.int64(2023), np.int64(2024), np.int64(2025)]
+
+--- Test year 2018 ---
+  Skipping: train too small (4,587)
+--- Test year 2019 ---
+  Train: 4,747 | Val: 527 | Test: 702
+  Game/Markov skipped: index 11328 is out of bounds for axis 0 with size 4747
+  Baseline: 61.7% | Structural: 59.7% | Ensemble: 63.0%
+--- Test year 2020 ---
+  Train: 5,379 | Val: 597 | Test: 1,033
+  Game/Markov skipped: index 11328 is out of bounds for axis 0 with size 5379
+  Baseline: 60.0% | Structural: 52.4% | Ensemble: 55.6%
+--- Test year 2021 ---
+  Train: 6,309 | Val: 700 | Test: 2,081
+  Game/Markov skipped: index 11328 is out of bounds for axis 0 with size 6309
+  Baseline: 65.1% | Structural: 55.6% | Ensemble: 59.2%
+--- Test year 2022 ---
+  Train: 8,181 | Val: 909 | Test: 1,213
+  Game/Markov skipped: index 11328 is out of bounds for axis 0 with size 8181
+  Baseline: 60.9% | Structural: 56.6% | Ensemble: 53.7%
+--- Test year 2023 ---
+  Train: 9,273 | Val: 1,030 | Test: 918
+  Game/Markov skipped: index 11328 is out of bounds for axis 0 with size 9273
+  Baseline: 58.1% | Structural: 51.3% | Ensemble: 50.5%
+--- Test year 2024 ---
+  Train: 10,099 | Val: 1,122 | Test: 2,062
+  Game/Markov skipped: index 11328 is out of bounds for axis 0 with size 10099
+  Baseline: 63.0% | Structural: 53.6% | Ensemble: 53.5%
+--- Test year 2025 ---
+  Train: 11,955 | Val: 1,328 | Test: 1,560
+  Game/Markov skipped: index 14304 is out of bounds for axis 0 with size 11955
+  Baseline: 56.9% | Structural: 52.4% | Ensemble: 54.9%
+
+============================================================
+BACKTEST SUMMARY
+============================================================
+Year      Train     Test   Baseline Structural   Ensemble
+------------------------------------------------------------
+2019      4,747      702      61.7%      59.7%      63.0%
+2020      5,379    1,033      60.0%      52.4%      55.6%
+2021      6,309    2,081      65.1%      55.6%      59.2%
+2022      8,181    1,213      60.9%      56.6%      53.7%
+2023      9,273      918      58.1%      51.3%      50.5%
+2024     10,099    2,062      63.0%      53.6%      53.5%
+2025     11,955    1,560      56.9%      52.4%      54.9%
+------------------------------------------------------------
+Average baseline:   60.8%
+Average structural: 54.5%
+Average ensemble:   55.8%
+Ensemble vs baseline: +-5.0pp
+
+Backtest complete.

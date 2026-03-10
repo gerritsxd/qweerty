@@ -58,6 +58,7 @@ def main():
         cluster_topics,
         build_historical_features,
     )
+    from src.ml.markov_features import build_markov_features, predict_markov_proba
     from src.ml.models import (
         train_baseline_party,
         predict_baseline_party,
@@ -115,6 +116,21 @@ def main():
             train, val, test = result
             import pickle
             with open(pkl2, "wb") as f:
+                pickle.dump((train, val, test), f)
+
+    # --- Step 2b: Markov features ---
+    pkl2b = OUTPUTS / "overnight_markov.pkl"
+    if pkl2b.exists():
+        import pickle
+        with open(pkl2b, "rb") as f:
+            train, val, test = pickle.load(f)
+        log("  (Resumed from overnight_markov.pkl)")
+    else:
+        result = run_step("Markov features", build_markov_features, train, val, test)
+        if result is not None:
+            train, val, test = result
+            import pickle
+            with open(pkl2b, "wb") as f:
                 pickle.dump((train, val, test), f)
 
     # --- Step 3: Structural model ---
@@ -206,6 +222,16 @@ def main():
     except Exception as e:
         log(f"  Game theory skipped: {e}")
 
+    # --- Step 5b: Markov P(Voor) predictions ---
+    proba_markov_val = None
+    proba_markov_test = None
+    try:
+        proba_markov_val = predict_markov_proba(val, train)
+        proba_markov_test = predict_markov_proba(test, train)
+        log("  Markov model: proba computed for val and test")
+    except Exception as e:
+        log(f"  Markov proba skipped: {e}")
+
     # --- Step 6: Ensemble stacking ---
     if structural_model is not None and robbert_model is not None:
         ensemble_model = run_step(
@@ -218,6 +244,7 @@ def main():
             structural_model,
             train,
             proba_game=proba_game_val,
+            proba_markov=proba_markov_val,
         )
         if ensemble_model is not None:
             proba_struct_val = RESULTS["structural"]["proba_val"]
@@ -227,10 +254,12 @@ def main():
             pred_ens_val = predict_ensemble_stacked(
                 ensemble_model, val, proba_struct_val, proba_rob_val, structural_model,
                 proba_game=proba_game_val,
+                proba_markov=proba_markov_val,
             )
             pred_ens_test = predict_ensemble_stacked(
                 ensemble_model, test, proba_struct_test, proba_rob_test, structural_model,
                 proba_game=proba_game_test,
+                proba_markov=proba_markov_test,
             )
             r_ens_val = evaluate(val["vote"].values, pred_ens_val)
             r_ens_test = evaluate(test["vote"].values, pred_ens_test)

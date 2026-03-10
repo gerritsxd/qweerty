@@ -33,7 +33,10 @@ def main():
         get_train_val_test,
         build_basic_features,
         add_enhanced_features,
+        cluster_topics,
+        build_historical_features,
     )
+    from src.ml.markov_features import build_markov_features, predict_markov_proba
     from src.ml.models import (
         train_baseline_party,
         predict_baseline_party,
@@ -47,16 +50,26 @@ def main():
         evaluate,
     )
 
-    # --- Load & prepare data (reuse cached topic + historical features) ---
+    # --- Load & prepare data (reuse cached topic + historical + Markov features) ---
     log("\n[Completion] Loading data from cache...")
     pkl_topics = OUTPUTS / "overnight_topics.pkl"
     pkl_hist = OUTPUTS / "overnight_historical.pkl"
+    pkl_markov = OUTPUTS / "overnight_markov.pkl"
     pkl_struct = OUTPUTS / "overnight_structural.pkl"
 
-    if pkl_hist.exists():
+    if pkl_markov.exists():
+        with open(pkl_markov, "rb") as f:
+            train, val, test = pickle.load(f)
+        log("  Loaded train/val/test from overnight_markov.pkl (includes Markov features)")
+    elif pkl_hist.exists():
         with open(pkl_hist, "rb") as f:
             train, val, test = pickle.load(f)
-        log("  Loaded train/val/test from overnight_historical.pkl (includes topics + historical)")
+        log("  Loaded train/val/test from overnight_historical.pkl")
+        try:
+            train, val, test = build_markov_features(train, val, test)
+            log("  Built Markov features")
+        except Exception as e:
+            log(f"  Markov features skipped: {e}")
     elif pkl_topics.exists():
         with open(pkl_topics, "rb") as f:
             train, val, test = pickle.load(f)
@@ -151,6 +164,16 @@ def main():
     except Exception as e:
         log(f"  Game theory skipped: {e}")
 
+    # --- Markov P(Voor) predictions ---
+    proba_markov_val = None
+    proba_markov_test = None
+    try:
+        proba_markov_val = predict_markov_proba(val, train)
+        proba_markov_test = predict_markov_proba(test, train)
+        log("  Markov model: proba computed")
+    except Exception as e:
+        log(f"  Markov proba skipped: {e}")
+
     # --- Ensemble stacking ---
     if structural_model is not None and robbert_model is not None:
         log("\n[Completion] Training ensemble stacker...")
@@ -163,6 +186,7 @@ def main():
                 structural_model,
                 train,
                 proba_game=proba_game_val,
+                proba_markov=proba_markov_val,
             )
             if ensemble_model is not None:
                 pred_ens_val = predict_ensemble_stacked(
@@ -171,6 +195,7 @@ def main():
                     RESULTS["robbert"]["proba_val"],
                     structural_model,
                     proba_game=proba_game_val,
+                    proba_markov=proba_markov_val,
                 )
                 pred_ens_test = predict_ensemble_stacked(
                     ensemble_model, test,
@@ -178,6 +203,7 @@ def main():
                     RESULTS["robbert"]["proba_test"],
                     structural_model,
                     proba_game=proba_game_test,
+                    proba_markov=proba_markov_test,
                 )
                 r_ens_val = evaluate(val["vote"].values, pred_ens_val)
                 r_ens_test = evaluate(test["vote"].values, pred_ens_test)
