@@ -480,14 +480,26 @@ def _build_structural_X(
         if enc_key in model and model[enc_key] is not None and col in df.columns:
             c = df[col].fillna("Onbekend").astype(str)
             parts.append(model[enc_key].transform(c.values.reshape(-1, 1)))
-    # numeric (including Markov features)
+    # numeric (including Markov features and CHES features)
+    ches_dims = ["lrgen", "galtan", "eu_position", "immigration",
+                 "environment", "redistribution", "law_order", "decentralization"]
+    ches_cols = (
+        [f"party_ches_{d}" for d in ches_dims]
+        + [f"bill_ches_{d}" for d in ches_dims]
+        + [f"ches_alignment_{d}" for d in ches_dims]
+        + ["ches_distance", "ches_policy_utility", "ches_dominant_dim"]
+    )
+    dpbd_cols = ["dpbd_voor_rate", "dpbd_consistency", "dpbd_n_votes_log",
+                 "dpbd_category_rate"]
+    dpbd_emb_cols = [c for c in df.columns if c.startswith("dpbd_party_emb_")]
+
     num_cols = ["is_coalition", "speaker_loyalty", "speech_position",
                 "party_domain_voor_rate", "party_domain_vote_count",
                 "party_recent_voor_rate", "speaker_topic_loyalty",
                 "party_transition_prob", "party_topic_transition_prob",
                 "party_rolling_voor_rate_5", "cross_topic_momentum",
                 "mp_transition_prob", "party_voor_streak",
-                "party_regime_prob_0", "party_regime_prob_1"]
+                "party_regime_prob_0", "party_regime_prob_1"] + ches_cols + dpbd_cols + dpbd_emb_cols
     num_arr = []
     for col in num_cols:
         if col in df.columns:
@@ -595,6 +607,126 @@ def predict_proba_structural_model(
     return proba[:, voor_idx[0]]
 
 
+def train_structural_model_lr(
+    train: pd.DataFrame,
+    val: pd.DataFrame,
+    test: pd.DataFrame,
+    target_col: str = "vote",
+    fractie_col: str = "fractie",
+) -> dict[str, Any]:
+    """
+    Logistic Regression on the same structured features as train_structural_model().
+    Returns the same model dict shape so predict_structural_model() works unchanged.
+    Additionally stores 'lr_coefs' and 'lr_feature_names' for interpretability.
+    """
+    from sklearn.preprocessing import OneHotEncoder, LabelEncoder
+    from sklearn.linear_model import LogisticRegression
+    from scipy.sparse import hstack, csr_matrix
+
+    train_sub = train[train[target_col].isin(["Voor", "Tegen"])].copy()
+    if len(train_sub) < 100:
+        raise ValueError("Not enough training samples for structural model")
+
+    fractie_enc = OneHotEncoder(handle_unknown="ignore")
+    fractie_enc.fit(train_sub[[fractie_col]].fillna("Onbekend"))
+
+    topic_enc = None
+    if "topic_cluster" in train_sub.columns:
+        topic_enc = OneHotEncoder(handle_unknown="ignore")
+        topic_enc.fit(train_sub[["topic_cluster"]].astype(int).astype(str))
+
+    zaak_enc = None
+    if "zaak_soort" in train_sub.columns:
+        zaak_enc = OneHotEncoder(handle_unknown="ignore")
+        zaak_enc.fit(train_sub[["zaak_soort"]].fillna("Onbekend").astype(str))
+    ka_enc = None
+    if "kabinetsappreciatie" in train_sub.columns:
+        ka_enc = OneHotEncoder(handle_unknown="ignore")
+        ka_enc.fit(train_sub[["kabinetsappreciatie"]].fillna("Onbekend").astype(str))
+
+    model = {
+        "fractie_enc": fractie_enc,
+        "topic_enc": topic_enc,
+        "zaak_enc": zaak_enc,
+        "ka_enc": ka_enc,
+    }
+
+    X_train = _build_structural_X(train_sub, model, fractie_col)
+    y_train = train_sub[target_col].values
+    le = LabelEncoder()
+    y_enc = le.fit_transform(y_train.astype(str))
+
+    clf = LogisticRegression(max_iter=1000, random_state=42, class_weight="balanced", C=1.0)
+    clf.fit(X_train, y_enc)
+
+    # Build feature name list matching _build_structural_X column order
+    feature_names: list[str] = []
+    for cat in fractie_enc.categories_[0]:
+        feature_names.append(f"fractie={cat}")
+    if topic_enc is not None:
+        for cat in topic_enc.categories_[0]:
+            feature_names.append(f"topic_cluster={cat}")
+    if zaak_enc is not None:
+        for cat in zaak_enc.categories_[0]:
+            feature_names.append(f"zaak_soort={cat}")
+    if ka_enc is not None:
+        for cat in ka_enc.categories_[0]:
+            feature_names.append(f"kabinetsappreciatie={cat}")
+    num_cols = [
+        "is_coalition", "speaker_loyalty", "speech_position",
+        "party_domain_voor_rate", "party_domain_vote_count",
+        "party_recent_voor_rate", "speaker_topic_loyalty",
+        "party_transition_prob", "party_topic_transition_prob",
+        "party_rolling_voor_rate_5", "cross_topic_momentum",
+        "mp_transition_prob", "party_voor_streak",
+        "party_regime_prob_0", "party_regime_prob_1",
+    ]
+    for col in num_cols:
+        if col in train_sub.columns:
+            feature_names.append(col)
+
+    model["clf"] = clf
+    model["label_enc"] = le
+    model["lr_coefs"] = clf.coef_
+    model["lr_feature_names"] = feature_names
+    return model
+
+
+def print_structural_coefficients(model: dict, top_n: int = 20) -> None:
+    """
+    Print the top positive and top negative LR coefficients from a
+    train_structural_model_lr() model dict, showing which metadata
+    features push toward each class.
+    """
+    coefs = model["lr_coefs"]
+    names = model["lr_feature_names"]
+    classes = model["label_enc"].classes_
+
+    for class_idx, class_name in enumerate(classes):
+        if class_idx >= coefs.shape[0]:
+            break
+        w = coefs[class_idx]
+        n_feats = min(len(w), len(names))
+        if n_feats < len(w):
+            extra = len(w) - len(names)
+            names = names + [f"feature_{i}" for i in range(len(names), len(w))]
+        order = np.argsort(w)
+
+        print(f"\n{'='*60}")
+        print(f"  Coefficients for class '{class_name}'")
+        print(f"{'='*60}")
+
+        print(f"\n  Top {top_n} POSITIVE (push toward '{class_name}'):")
+        for rank, idx in enumerate(order[::-1][:top_n], 1):
+            if idx < len(names):
+                print(f"    {rank:3d}. {names[idx]:45s}  {w[idx]:+.4f}")
+
+        print(f"\n  Top {top_n} NEGATIVE (push away from '{class_name}'):")
+        for rank, idx in enumerate(order[:top_n], 1):
+            if idx < len(names):
+                print(f"    {rank:3d}. {names[idx]:45s}  {w[idx]:+.4f}")
+
+
 def train_ensemble_stacked(
     val: pd.DataFrame,
     proba_struct: np.ndarray,
@@ -688,13 +820,29 @@ def predict_ensemble_stacked(
 def evaluate(
     y_true: np.ndarray,
     y_pred: np.ndarray,
+    proba: Optional[np.ndarray] = None,
 ) -> dict[str, float]:
-    """Compute accuracy and per-class metrics."""
+    """Compute accuracy, F1-macro, and optionally AUC-ROC.
+
+    Parameters
+    ----------
+    proba : array of P(Voor) per sample.  When provided the result dict
+            includes an ``"auc"`` key with the ROC-AUC score.
+    """
     from sklearn.metrics import accuracy_score, f1_score
 
     acc = accuracy_score(y_true, y_pred)
     f1_macro = f1_score(y_true, y_pred, average="macro", zero_division=0)
-    return {"accuracy": acc, "f1_macro": f1_macro}
+    result: dict[str, float] = {"accuracy": acc, "f1_macro": f1_macro}
+
+    if proba is not None:
+        from sklearn.metrics import roc_auc_score
+
+        y_bin = (np.asarray(y_true) == "Voor").astype(int)
+        if len(np.unique(y_bin)) > 1:
+            result["auc"] = roc_auc_score(y_bin, proba)
+
+    return result
 
 
 # --- RobBERT fine-tuned transformer ---
@@ -711,13 +859,18 @@ def _build_robbert_input_text(
     besluit_col: str = "besluit_tekst",
     sep: str = " </s> ",
     truncation_chars: dict | None = None,
+    include_dpbd: bool = False,
 ) -> str:
-    """Build input: [party] </s> [besluit_tekst] </s> [topic] </s> [speech].
+    """Build input: [party+context] </s> [besluit_tekst] </s> [topic] </s> [speech].
 
     Uses </s> (RobBERT's actual SEP token) instead of literal '[SEP]'.
     Puts the most informative context (party + what's being voted on) first
     so it's never truncated.
     truncation_chars: optional dict with keys besluit, topic, speech (char limits).
+
+    When include_dpbd=True, injects historical context from the DPBD into
+    the party segment: "VVD [hist:60%V disc:98% coal:ja]" giving the model
+    a textual historical prior it can learn to use (or ignore).
     """
     tc = truncation_chars or {}
     n_besluit = tc.get("besluit", 300)
@@ -727,7 +880,27 @@ def _build_robbert_input_text(
     besluit = str(row.get(besluit_col) or "")[:n_besluit]
     topic = str(row.get(topic_col) or "")[:n_topic]
     speech = str(row.get(speech_col) or "")[:n_speech]
-    return f"{party}{sep}{besluit}{sep}{topic}{sep}{speech}".strip()
+
+    if include_dpbd:
+        parts = [party]
+        dpbd_vr = row.get("dpbd_voor_rate")
+        if dpbd_vr is not None and not pd.isna(dpbd_vr) and dpbd_vr != 0.5:
+            parts.append(f"[hist:{dpbd_vr:.0%}V")
+            dpbd_cons = row.get("dpbd_consistency")
+            if dpbd_cons is not None and not pd.isna(dpbd_cons):
+                parts[-1] += f" disc:{dpbd_cons:.0%}"
+            dpbd_cat = row.get("dpbd_category_rate")
+            if dpbd_cat is not None and not pd.isna(dpbd_cat) and dpbd_cat != 0.5:
+                parts[-1] += f" cat:{dpbd_cat:.0%}V"
+            parts[-1] += "]"
+        coal = row.get("is_coalition")
+        if coal is not None and not pd.isna(coal):
+            parts.append("coalitie" if int(coal) == 1 else "oppositie")
+        party_segment = " ".join(parts)
+    else:
+        party_segment = party
+
+    return f"{party_segment}{sep}{besluit}{sep}{topic}{sep}{speech}".strip()
 
 
 def train_model_robbert(
@@ -828,9 +1001,13 @@ def train_model_robbert(
 
     # --- Tokenize ---
     tokenizer = AutoTokenizer.from_pretrained(ROBBERT_MODEL_ID)
+    use_dpbd = "dpbd_voor_rate" in train_sub.columns
+    if use_dpbd:
+        print("Including DPBD historical context in input text")
     print("Tokenizing texts...")
     def _text(row):
-        return _build_robbert_input_text(row, fractie_col, truncation_chars=truncation_chars)
+        return _build_robbert_input_text(row, fractie_col, truncation_chars=truncation_chars,
+                                         include_dpbd=use_dpbd)
     texts_train = [_text(row) for _, row in train_sub.iterrows()]
     texts_val = [_text(row) for _, row in val_sub.iterrows()]
 

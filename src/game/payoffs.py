@@ -2,11 +2,12 @@
 """
 Payoff functions for the game-theoretic vote prediction model.
 
-Four components:
+Five components:
 1. Policy utility: alignment between party ideal point and bill position
 2. Coalition utility: cost/benefit of voting with/against government
 3. Electoral utility: polling-based incentives
 4. Reciprocity utility: log-rolling from historical co-voting
+5. Discipline utility: penalty for deviating from party line (DPBD-informed)
 """
 
 from pathlib import Path
@@ -107,6 +108,25 @@ def reciprocity_utility(
     return 0.0
 
 
+def discipline_utility(
+    vote_voor: bool,
+    party_line_voor: bool,
+    dpbd_consistency: float,
+    strength: float = 0.5,
+) -> float:
+    """
+    Penalty for deviating from party line, scaled by historical discipline.
+    High dpbd_consistency (e.g. 0.98) -> strong penalty for rebellion.
+    Low dpbd_consistency (new/small parties) -> weaker penalty.
+    party_line_voor: True if party typically votes Voor on this type of bill.
+    """
+    if dpbd_consistency <= 0 or dpbd_consistency >= 1:
+        return 0.0
+    if vote_voor == party_line_voor:
+        return dpbd_consistency * strength
+    return -dpbd_consistency * strength
+
+
 def compute_payoffs(
     party_ideal: np.ndarray,
     bill_position: np.ndarray,
@@ -117,22 +137,28 @@ def compute_payoffs(
     party_domain_voor_rate: float = 0.5,
     polling_share: float = 0.0,
     total_poll_share: float = 1.0,
-    w1: float = 0.5,
-    w2: float = 0.3,
+    w1: float = 0.45,
+    w2: float = 0.25,
     w3: float = 0.1,
     w4: float = 0.1,
+    w5: float = 0.1,
     coalition_strength: float = 0.5,
+    dpbd_consistency: float = 0.0,
+    party_line_voor: Optional[bool] = None,
 ) -> float:
     """
     Total payoff for a party voting Voor (if vote_voor) or Tegen (otherwise).
 
-    U = w1*policy + w2*coalition + w3*electoral + w4*reciprocity
+    U = w1*policy + w2*coalition + w3*electoral + w4*reciprocity + w5*discipline
     """
     u1 = policy_utility(party_ideal, bill_position, vote_voor)
     u2 = coalition_utility(fractie, vote_voor, government_vote_voor, is_coalition, coalition_strength)
     u3 = electoral_utility(fractie, vote_voor, government_vote_voor, polling_share, total_poll_share)
     u4 = reciprocity_utility(fractie, vote_voor, party_domain_voor_rate, 0.2)
-    return w1 * u1 + w2 * u2 + w3 * u3 + w4 * u4
+    u5 = 0.0
+    if dpbd_consistency > 0 and party_line_voor is not None:
+        u5 = discipline_utility(vote_voor, party_line_voor, dpbd_consistency, 0.5)
+    return w1 * u1 + w2 * u2 + w3 * u3 + w4 * u4 + w5 * u5
 
 
 def compute_payoffs_batch(
@@ -140,10 +166,11 @@ def compute_payoffs_batch(
     party_ideals: np.ndarray,
     bill_positions: np.ndarray,
     government_vote_voor: Optional[np.ndarray] = None,
-    w1: float = 0.5,
-    w2: float = 0.3,
+    w1: float = 0.45,
+    w2: float = 0.25,
     w3: float = 0.1,
     w4: float = 0.1,
+    w5: float = 0.1,
     fractie_col: str = "fractie",
     is_coalition_col: str = "is_coalition",
     party_domain_col: str = "party_domain_voor_rate",
@@ -152,13 +179,13 @@ def compute_payoffs_batch(
     """
     Compute payoffs for Voor and Tegen for each row.
     Returns (payoff_voor, payoff_tegen) each shape (n_rows,).
+    Uses dpbd_category_rate for reciprocity when available; dpbd_consistency for discipline.
     """
     n = len(df)
     payoff_voor = np.zeros(n, dtype=np.float32)
     payoff_tegen = np.zeros(n, dtype=np.float32)
 
     if government_vote_voor is None:
-        # Ontraden = government opposes -> gov votes Tegen. Overgenomen = gov supports -> Voor
         gov_col = "kabinetsappreciatie" if "kabinetsappreciatie" in df.columns else None
         if gov_col:
             government_vote_voor = ~df[gov_col].fillna("").str.contains("Ontraden", case=False, na=False).values
@@ -166,11 +193,20 @@ def compute_payoffs_batch(
             government_vote_voor = np.ones(n, dtype=bool)
 
     polling = load_polling_data()
+    has_dpbd = "dpbd_consistency" in df.columns
+
     for i in range(n):
         row = df.iloc[i]
         fractie = row.get(fractie_col, "Onbekend")
         is_coal = bool(row.get(is_coalition_col, 0))
         p_domain = float(row.get(party_domain_col, 0.5))
+        # Prefer dpbd_category_rate for reciprocity when available
+        if has_dpbd:
+            cat_rate = row.get("dpbd_category_rate")
+            if cat_rate is not None and not pd.isna(cat_rate):
+                p_domain = float(cat_rate)
+            elif (vr := row.get("dpbd_voor_rate")) is not None and not pd.isna(vr):
+                p_domain = float(vr)
         gov_voor = government_vote_voor[i] if hasattr(government_vote_voor, "__getitem__") else True
 
         poll_share = 0.0
@@ -185,12 +221,29 @@ def compute_payoffs_batch(
         ideal = party_ideals[i] if i < len(party_ideals) else np.full(len(CHES_DIMENSIONS), 5.0)
         bill = bill_positions[i] if i < len(bill_positions) else np.full(len(CHES_DIMENSIONS), 5.0)
 
+        # Discipline: party line from dpbd_category_rate > dpbd_voor_rate > party_domain
+        dpbd_cons = 0.0
+        party_line_voor = None
+        if has_dpbd:
+            cons = row.get("dpbd_consistency")
+            if cons is not None and not pd.isna(cons):
+                dpbd_cons = float(cons)
+            for rate_col in ("dpbd_category_rate", "dpbd_voor_rate", party_domain_col):
+                r = row.get(rate_col)
+                if r is not None and not pd.isna(r):
+                    party_line_voor = float(r) > 0.5
+                    break
+            else:
+                party_line_voor = p_domain > 0.5
+
         payoff_voor[i] = compute_payoffs(
             ideal, bill, fractie, True, is_coal, gov_voor,
-            p_domain, poll_share, total_poll, w1, w2, w3, w4,
+            p_domain, poll_share, total_poll, w1, w2, w3, w4, w5,
+            dpbd_consistency=dpbd_cons, party_line_voor=party_line_voor,
         )
         payoff_tegen[i] = compute_payoffs(
             ideal, bill, fractie, False, is_coal, gov_voor,
-            p_domain, poll_share, total_poll, w1, w2, w3, w4,
+            p_domain, poll_share, total_poll, w1, w2, w3, w4, w5,
+            dpbd_consistency=dpbd_cons, party_line_voor=party_line_voor,
         )
     return payoff_voor, payoff_tegen

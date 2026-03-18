@@ -474,6 +474,8 @@
           <p>Cabinet period lookup (Rutte II/III/IV, Schoof) with party lists. <strong>is_coalition</strong> = 1 if the MP's party was in government on the vote date.</p>
           <p class="method-sub">Topic clustering</p>
           <p>TF-IDF on <code>besluit_tekst</code> + <code>agendapunt_onderwerp</code>, KMeans into 20 clusters. Each vote gets a <strong>topic_cluster</strong> so we learn "how does party X vote on immigration?" not just "how does party X vote?"</p>
+          <p class="method-sub">DPBD (Dutch Parliamentary Behaviour Dataset 1946–2015)</p>
+          <p><strong>dpbd_voor_rate</strong>, <strong>dpbd_consistency</strong> (party discipline), <strong>dpbd_category_rate</strong>: 70 years of historical voting. New parties (BBB, FvD, NSC) inherit profiles via CHES ideological similarity.</p>
           <p class="method-sub">Historical rates (training data only — no leakage)</p>
           <p><strong>party_domain_voor_rate</strong>: % Voor by this party in this topic cluster. <strong>party_recent_voor_rate</strong>: party's overall Voor rate. <strong>speaker_topic_loyalty</strong>: does this MP break from party majority on this topic?</p>
           <p class="method-sub">Speaker loyalty</p>
@@ -498,8 +500,10 @@
           <p><strong>Progressive unfreezing:</strong> Epoch 0: classifier only. Epoch 3: top 2 encoder layers. Epoch 6: top 4. Gradually adapts language understanding.</p>
           <p><strong>Sample reweighting:</strong> mastered (correct + high conf) = 0.3×, uncertain = 1.5×, wrong = 2.0×. Focuses training on what the model struggles with.</p>
           <div class="arch-diagram">Input text (256 tokens) → RobBERT encoder (768-dim) → CLS token → Linear(768→256) → GELU → Dropout → Linear(256→64) → GELU → Dropout → Linear(64→2) → Softmax → [P(Voor), P(Tegen)]</div>
+          <p class="method-sub">Game theory (complementary)</p>
+          <p>Five payoff components: policy alignment (CHES vs bill), coalition loyalty, electoral pressure, reciprocity (historical co-voting), and <strong>discipline</strong> (DPBD consistency — high-discipline parties penalized for rebellion). Sigmoid converts payoff difference to P(Voor). Calibrated on train.</p>
           <p class="method-sub">Ensemble (71.9% test)</p>
-          <p>Logistic regression meta-learner on: structural probability, RobBERT probability, agreement (do they match?), confidence delta. Combines both models for best results.</p>
+          <p>Logistic regression meta-learner on: structural probability, RobBERT probability, <strong>game-theoretic P(Voor)</strong>, <strong>Markov P(Voor)</strong>, agreement (structural vs RobBERT), confidence delta, is_coalition, party_domain_voor_rate, topic_cluster. Combines all signals for best results.</p>
         </div>
       </div>
     </div>

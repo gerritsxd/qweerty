@@ -34,8 +34,8 @@ def get_split_by_year(
     """Train = all before test_year, test = test_year only."""
     df = df.copy()
     df["_year"] = pd.to_datetime(df[date_col], errors="coerce").dt.year
-    train = df[df["_year"] < test_year].drop(columns=["_year"])
-    test = df[df["_year"] == test_year].drop(columns=["_year"])
+    train = df[df["_year"] < test_year].drop(columns=["_year"]).reset_index(drop=True)
+    test = df[df["_year"] == test_year].drop(columns=["_year"]).reset_index(drop=True)
     return train, test
 
 
@@ -86,8 +86,8 @@ def main():
     for test_year in test_years:
         log(f"--- Test year {test_year} ---")
         train_full, test = get_split_by_year(df, test_year)
-        train_full = train_full[train_full["vote"].isin(["Voor", "Tegen"])]
-        test = test[test["vote"].isin(["Voor", "Tegen"])]
+        train_full = train_full[train_full["vote"].isin(["Voor", "Tegen"])].reset_index(drop=True)
+        test = test[test["vote"].isin(["Voor", "Tegen"])].reset_index(drop=True)
 
         if len(train_full) < 5000:
             log(f"  Skipping: train too small ({len(train_full):,})")
@@ -97,8 +97,8 @@ def main():
             continue
 
         n_val = min(2000, max(500, len(train_full) // 10))
-        val = train_full.tail(n_val)
-        train = train_full.iloc[:-n_val]
+        val = train_full.tail(n_val).reset_index(drop=True)
+        train = train_full.iloc[:-n_val].reset_index(drop=True)
 
         log(f"  Train: {len(train):,} | Val: {len(val):,} | Test: {len(test):,}")
 
@@ -136,7 +136,7 @@ def main():
             try:
                 from src.game.simulation import predict_vote_probabilities
                 from src.game.calibrate import calibrate_weights
-                calibrated = calibrate_weights(train, val)
+                calibrated = calibrate_weights(train, val, quick=True)
                 proba_game_val = predict_vote_probabilities(val, train_df=train, calibrated_weights=calibrated)
                 proba_game_test = predict_vote_probabilities(test, train_df=train, calibrated_weights=calibrated)
                 proba_markov_val = predict_markov_proba(val, train)

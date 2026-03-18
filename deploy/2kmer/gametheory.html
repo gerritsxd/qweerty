@@ -232,6 +232,44 @@
   }
   .info-card strong { color: #e0e0e0; }
   .info-card code { color: #f9c74f; background: #0a0a1a; padding: 1px 5px; border-radius: 3px; font-size: 12px; }
+
+  /* ── Dimension legend ─────────────────────────────────── */
+  .dim-legend {
+    background: #12122e;
+    border: 1px solid #ffffff15;
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin-top: 16px;
+    font-size: 12px;
+    color: #aaa;
+    line-height: 1.6;
+  }
+  .dim-legend summary {
+    cursor: pointer;
+    color: #f9c74f;
+    font-weight: 600;
+    font-size: 13px;
+    user-select: none;
+  }
+  .dim-legend summary:hover { color: #ffd966; }
+  .dim-legend[open] summary { margin-bottom: 12px; }
+  .dim-legend-item {
+    margin-bottom: 10px;
+    padding-left: 12px;
+    border-left: 3px solid #ffffff20;
+  }
+  .dim-legend-item:last-child { margin-bottom: 0; }
+  .dim-legend-item strong { color: #e0e0e0; font-size: 13px; }
+  .dim-legend-item.caveat {
+    border-left-color: #e76f5155;
+    font-style: italic;
+    color: #b0b0b0;
+  }
+  .dim-legend-item.active {
+    border-left-color: #f9c74f;
+    color: #e0e0e0;
+  }
+  .dim-legend-item.active.caveat { border-left-color: #f9c74f88; }
 </style>
 </head>
 <body>
@@ -275,6 +313,10 @@
       <option value="schoof" selected>Schoof (PVV+VVD+NSC+BBB)</option>
     </select>
   </div>
+  <details class="dim-legend" id="dim-legend">
+    <summary>Axis guide — what do these dimensions mean?</summary>
+    <div id="dim-legend-content"></div>
+  </details>
   <div id="landscape-2d-container">
     <svg id="landscape-svg" viewBox="0 0 800 520"></svg>
   </div>
@@ -284,7 +326,7 @@
 <!-- ═══════════════ TAB 2: Payoff Breakdown ═══════════════ -->
 <div class="tab-panel" id="tab-payoffs">
   <div class="info-card">
-    Each party's vote decision is modeled as a strategic payoff with four components.
+    Each party's vote decision is modeled as a strategic payoff with five components.
     The bar shows the <strong>relative contribution</strong> of each factor; the percentage is the model's <strong>P(Voor)</strong>.
     Select a vote to see how the game theory module breaks it down.
   </div>
@@ -293,6 +335,7 @@
     <div class="payoff-legend-item"><div class="payoff-legend-swatch" style="background:#e9c46a;"></div> Coalition loyalty</div>
     <div class="payoff-legend-item"><div class="payoff-legend-swatch" style="background:#e76f51;"></div> Electoral pressure</div>
     <div class="payoff-legend-item"><div class="payoff-legend-swatch" style="background:#457b9d;"></div> Reciprocity</div>
+    <div class="payoff-legend-item"><div class="payoff-legend-swatch" style="background:#9b59b6;"></div> Discipline (DPBD)</div>
   </div>
   <div class="vote-selector">
     <label>Sample vote:</label>
@@ -317,14 +360,23 @@ const PARTY_COLORS = {
 };
 
 const DIMENSIONS = [
-  { key: "lrgen",          label: "Left–Right" },
-  { key: "galtan",         label: "GAL–TAN" },
-  { key: "eu_position",    label: "EU Integration" },
-  { key: "immigration",    label: "Immigration" },
-  { key: "environment",    label: "Environment" },
-  { key: "redistribution", label: "Redistribution" },
-  { key: "law_order",      label: "Law & Order" },
-  { key: "decentralization", label: "Decentralization" },
+  { key: "lrgen",          label: "Left–Right",
+    description: "Economic left (redistribution, regulation) vs right (markets, privatization). 0 = far left, 10 = far right." },
+  { key: "galtan",         label: "GAL–TAN",
+    description: "Green/Alternative/Libertarian vs Traditional/Authoritarian/Nationalist. Combines environmentalism, social liberalism, multiculturalism vs traditional values, law & order, national identity. Often oversimplifies—parties can mix positions across these sub-dimensions.",
+    caveat: true },
+  { key: "eu_position",    label: "EU Integration",
+    description: "Support for European integration (0 = Eurosceptic, 10 = federalist). Covers sovereignty, single market, EU enlargement." },
+  { key: "immigration",    label: "Immigration",
+    description: "Openness to immigration (0 = restrict, 10 = open). Includes asylum policy, integration, multiculturalism." },
+  { key: "environment",    label: "Environment",
+    description: "Environmental policy priority (0 = growth-first, 10 = climate-first). Covers emissions, energy transition, nature." },
+  { key: "redistribution", label: "Redistribution",
+    description: "Support for redistribution via taxes and welfare (0 = minimal state, 10 = strong welfare)." },
+  { key: "law_order",      label: "Law & Order",
+    description: "Toughness on crime and security (0 = rehabilitation-focused, 10 = punitive, law-and-order)." },
+  { key: "decentralization", label: "Decentralization",
+    description: "Preference for decentralization vs centralization (0 = central, 10 = regional/local autonomy)." },
 ];
 
 const PARTIES = [
@@ -362,18 +414,18 @@ const SAMPLE_VOTES = [
     topic: "environment",
     kabinet: "Overgenomen",
     parties: [
-      { party:"VVD",             policy:0.35, coalition:0.80, electoral:0.40, reciprocity:0.30, pVoor:0.62 },
-      { party:"PVV",             policy:0.10, coalition:0.15, electoral:0.20, reciprocity:0.15, pVoor:0.18 },
-      { party:"CDA",             policy:0.40, coalition:0.75, electoral:0.35, reciprocity:0.45, pVoor:0.58 },
-      { party:"D66",             policy:0.85, coalition:0.80, electoral:0.70, reciprocity:0.50, pVoor:0.88 },
-      { party:"SP",              policy:0.55, coalition:0.10, electoral:0.45, reciprocity:0.35, pVoor:0.42 },
-      { party:"GroenLinks-PvdA", policy:0.92, coalition:0.10, electoral:0.80, reciprocity:0.45, pVoor:0.82 },
-      { party:"ChristenUnie",    policy:0.60, coalition:0.75, electoral:0.40, reciprocity:0.50, pVoor:0.68 },
-      { party:"PvdD",            policy:0.95, coalition:0.05, electoral:0.85, reciprocity:0.30, pVoor:0.78 },
-      { party:"SGP",             policy:0.25, coalition:0.20, electoral:0.30, reciprocity:0.40, pVoor:0.28 },
-      { party:"BBB",             policy:0.08, coalition:0.10, electoral:0.10, reciprocity:0.20, pVoor:0.12 },
-      { party:"FVD",             policy:0.12, coalition:0.05, electoral:0.15, reciprocity:0.10, pVoor:0.11 },
-      { party:"Volt",            policy:0.80, coalition:0.10, electoral:0.65, reciprocity:0.35, pVoor:0.72 },
+      { party:"VVD",             policy:0.35, coalition:0.80, electoral:0.40, reciprocity:0.30, discipline:0.25, pVoor:0.62 },
+      { party:"PVV",             policy:0.10, coalition:0.15, electoral:0.20, reciprocity:0.15, discipline:0.05, pVoor:0.18 },
+      { party:"CDA",             policy:0.40, coalition:0.75, electoral:0.35, reciprocity:0.45, discipline:0.30, pVoor:0.58 },
+      { party:"D66",             policy:0.85, coalition:0.80, electoral:0.70, reciprocity:0.50, discipline:0.20, pVoor:0.88 },
+      { party:"SP",              policy:0.55, coalition:0.10, electoral:0.45, reciprocity:0.35, discipline:0.15, pVoor:0.42 },
+      { party:"GroenLinks-PvdA", policy:0.92, coalition:0.10, electoral:0.80, reciprocity:0.45, discipline:0.10, pVoor:0.82 },
+      { party:"ChristenUnie",    policy:0.60, coalition:0.75, electoral:0.40, reciprocity:0.50, discipline:0.28, pVoor:0.68 },
+      { party:"PvdD",            policy:0.95, coalition:0.05, electoral:0.85, reciprocity:0.30, discipline:0.08, pVoor:0.78 },
+      { party:"SGP",             policy:0.25, coalition:0.20, electoral:0.30, reciprocity:0.40, discipline:0.35, pVoor:0.28 },
+      { party:"BBB",             policy:0.08, coalition:0.10, electoral:0.10, reciprocity:0.20, discipline:0.05, pVoor:0.12 },
+      { party:"FVD",             policy:0.12, coalition:0.05, electoral:0.15, reciprocity:0.10, discipline:0.03, pVoor:0.11 },
+      { party:"Volt",            policy:0.80, coalition:0.10, electoral:0.65, reciprocity:0.35, discipline:0.06, pVoor:0.72 },
     ],
   },
   {
@@ -467,6 +519,7 @@ const PAYOFF_COLORS = {
   coalition:  "#e9c46a",
   electoral:  "#e76f51",
   reciprocity:"#457b9d",
+  discipline: "#9b59b6",
 };
 
 // ═══════════════════════════════════════════════════════════════════
@@ -501,6 +554,22 @@ DIMENSIONS.forEach((d, i) => {
   dimY.innerHTML += `<option value="${d.key}" ${i===1?'selected':''}>${d.label}</option>`;
   dimZ.innerHTML += `<option value="${d.key}" ${i===2?'selected':''}>${d.label}</option>`;
 });
+
+function renderDimLegend() {
+  const active = new Set([dimX.value, dimY.value, viewMode.value === '3d' ? dimZ.value : null].filter(Boolean));
+  const container = document.getElementById('dim-legend-content');
+  container.innerHTML = DIMENSIONS.map(d => {
+    const isActive = active.has(d.key);
+    const cls = 'dim-legend-item' + (d.caveat ? ' caveat' : '') + (isActive ? ' active' : '');
+    return `<div class="${cls}" data-key="${d.key}"><strong>${d.label}</strong> — ${d.description}</div>`;
+  }).join('');
+}
+
+renderDimLegend();
+viewMode.addEventListener('change', renderDimLegend);
+dimX.addEventListener('change', renderDimLegend);
+dimY.addEventListener('change', renderDimLegend);
+dimZ.addEventListener('change', renderDimLegend);
 
 function updateView() {
   const is3d = viewMode.value === '3d';
@@ -796,8 +865,8 @@ function drawPayoffs() {
   const sorted = vote.parties.slice().sort((a, b) => b.pVoor - a.pVoor);
 
   sorted.forEach(p => {
-    const total = p.policy + p.coalition + p.electoral + p.reciprocity;
-    const pct = v => total > 0 ? (v / total * 100) : 25;
+    const total = (p.policy || 0) + (p.coalition || 0) + (p.electoral || 0) + (p.reciprocity || 0) + (p.discipline || 0);
+    const pct = v => total > 0 ? (v / total * 100) : 20;
     const col = PARTY_COLORS[p.party] || '#888';
 
     const row = document.createElement('div');
@@ -812,10 +881,11 @@ function drawPayoffs() {
     barC.className = 'payoff-bar-container';
 
     const segs = [
-      { key: 'policy',     val: p.policy,     color: PAYOFF_COLORS.policy },
-      { key: 'coalition',  val: p.coalition,   color: PAYOFF_COLORS.coalition },
-      { key: 'electoral',  val: p.electoral,   color: PAYOFF_COLORS.electoral },
-      { key: 'reciprocity',val: p.reciprocity, color: PAYOFF_COLORS.reciprocity },
+      { key: 'policy',     val: p.policy || 0,     color: PAYOFF_COLORS.policy },
+      { key: 'coalition',  val: p.coalition || 0,   color: PAYOFF_COLORS.coalition },
+      { key: 'electoral',  val: p.electoral || 0,   color: PAYOFF_COLORS.electoral },
+      { key: 'reciprocity',val: p.reciprocity || 0, color: PAYOFF_COLORS.reciprocity },
+      { key: 'discipline', val: p.discipline || 0,  color: PAYOFF_COLORS.discipline },
     ];
     segs.forEach(s => {
       const seg = document.createElement('div');

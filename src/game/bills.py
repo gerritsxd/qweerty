@@ -127,11 +127,11 @@ def get_bill_positions(
     pos = positioner or BillPositioner(train_df=train_df)
     n_dims = len(CHES_DIMENSIONS)
     result = np.full((len(df), n_dims), 5.0, dtype=np.float32)
-    for i, row in df.iterrows():
+    for idx, (_, row) in enumerate(df.iterrows()):
         tc = row.get(topic_col, 0)
         ka = row.get(ka_col, "Onbekend")
         zs = row.get(zaak_col, "Onbekend")
         dt = row.get(date_col)
         vec = pos.get_bill_position(tc, ka, zs, None, dt)
-        result[i] = vec
+        result[idx] = vec
     return result

@@ -34,10 +34,11 @@ def run_simulation(
     train_df: Optional[pd.DataFrame] = None,
     party_profiler: Optional[PartyProfiler] = None,
     bill_positioner: Optional[BillPositioner] = None,
-    w1: float = 0.5,
-    w2: float = 0.3,
+    w1: float = 0.45,
+    w2: float = 0.25,
     w3: float = 0.1,
     w4: float = 0.1,
+    w5: float = 0.1,
     temperature: float = 1.0,
     fractie_col: str = "fractie",
 ) -> np.ndarray:
@@ -53,7 +54,7 @@ def run_simulation(
 
     payoff_voor, payoff_tegen = compute_payoffs_batch(
         df, party_ideals, bill_positions,
-        w1=w1, w2=w2, w3=w3, w4=w4,
+        w1=w1, w2=w2, w3=w3, w4=w4, w5=w5,
         fractie_col=fractie_col,
     )
     return payoff_to_probability(payoff_voor, payoff_tegen, temperature)
@@ -66,15 +67,16 @@ def predict_vote_probabilities(
 ) -> np.ndarray:
     """
     Main entry point: predict P(Voor) for each row using game-theoretic model.
-    calibrated_weights: optional dict with w1, w2, w3, w4, temperature
+    calibrated_weights: optional dict with w1, w2, w3, w4, w5, temperature
     """
     weights = calibrated_weights or {}
     return run_simulation(
         df,
         train_df=train_df,
-        w1=weights.get("w1", 0.5),
-        w2=weights.get("w2", 0.3),
+        w1=weights.get("w1", 0.45),
+        w2=weights.get("w2", 0.25),
         w3=weights.get("w3", 0.1),
         w4=weights.get("w4", 0.1),
+        w5=weights.get("w5", 0.1),
         temperature=weights.get("temperature", 1.0),
     )

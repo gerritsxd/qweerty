@@ -253,6 +253,16 @@ def add_enhanced_features(
         )
         df.drop(columns=["_dt"], errors="ignore", inplace=True)
 
+    # DPBD historical features (70 years of voting memory)
+    try:
+        from .dpbd_features import enrich_with_dpbd_features
+        print("  Adding DPBD historical features...")
+        train, val, test = enrich_with_dpbd_features(train, val, test)
+        dpbd_cols = [c for c in train.columns if c.startswith("dpbd_")]
+        print(f"  Added {len(dpbd_cols)} DPBD features: {dpbd_cols[:6]}...")
+    except Exception as e:
+        print(f"  DPBD features skipped: {e}")
+
     return train, val, test
 
 

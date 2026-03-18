@@ -263,11 +263,11 @@ def get_party_ideal_points(
     prof = profiler or PartyProfiler()
     n_dims = len(CHES_DIMENSIONS)
     result = np.full((len(df), n_dims), 5.0, dtype=np.float32)
-    for i, row in df.iterrows():
+    for idx, (_, row) in enumerate(df.iterrows()):
         fractie = row.get(fractie_col) or "Onbekend"
         dt = row.get(date_col)
         if pd.isna(dt):
             continue
         vec = prof.get_party_ideal_point(fractie, dt)
-        result[i] = vec
+        result[idx] = vec
     return result
